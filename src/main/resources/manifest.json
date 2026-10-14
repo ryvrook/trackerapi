@@ -1,0 +1,19 @@
+{
+  "Group": "Ryvrook",
+  "Name": "TrackerAPI",
+  "Version": "@version@",
+  "Description": "A shared event tracker for Hytale servers. One set of engine hooks records every block, item, combat, movement, world and session interaction and hands them to other plugins through a typed API, with an optional on disk journal.",
+  "Main": "dev.ryvrook.trackerapi.TrackerApiPlugin",
+  "Authors": [
+    {
+      "Name": "ryvrook"
+    }
+  ],
+  "Website": "https://github.com/ryvrook/trackerapi",
+  "ServerVersion": ">=0.7.0",
+  "Dependencies": {},
+  "OptionalDependencies": {},
+  "LoadBefore": {},
+  "DisabledByDefault": false,
+  "IncludesAssetPack": false
+}

@@ -1,0 +1,289 @@
+package dev.ryvrook.trackerapi.counters;
+
+import dev.ryvrook.trackerapi.api.Actor;
+import dev.ryvrook.trackerapi.api.EventKind;
+import dev.ryvrook.trackerapi.api.Keys;
+import dev.ryvrook.trackerapi.api.TrackerEvent;
+import dev.ryvrook.trackerapi.api.event.BlockBroken;
+import dev.ryvrook.trackerapi.api.event.BlockPlaced;
+import dev.ryvrook.trackerapi.api.event.BlockUsed;
+import dev.ryvrook.trackerapi.api.event.CreatureTamed;
+import dev.ryvrook.trackerapi.api.event.DamageDealt;
+import dev.ryvrook.trackerapi.api.event.EffectChanged;
+import dev.ryvrook.trackerapi.api.event.EntityUsed;
+import dev.ryvrook.trackerapi.api.event.InstanceDiscovered;
+import dev.ryvrook.trackerapi.api.event.ItemBroke;
+import dev.ryvrook.trackerapi.api.event.ObjectiveCompleted;
+import dev.ryvrook.trackerapi.api.event.PlayerSlept;
+import dev.ryvrook.trackerapi.api.event.RecipeLearned;
+import dev.ryvrook.trackerapi.api.event.ReputationChanged;
+import dev.ryvrook.trackerapi.api.event.EntityDied;
+import dev.ryvrook.trackerapi.api.event.InteractionStarted;
+import dev.ryvrook.trackerapi.api.event.ItemConsumed;
+import dev.ryvrook.trackerapi.api.event.ItemCrafted;
+import dev.ryvrook.trackerapi.api.event.ItemDropped;
+import dev.ryvrook.trackerapi.api.event.ItemPickedUp;
+import dev.ryvrook.trackerapi.api.event.ItemsGained;
+import dev.ryvrook.trackerapi.api.event.ItemsLost;
+import dev.ryvrook.trackerapi.api.event.MemoryRecorded;
+import dev.ryvrook.trackerapi.api.event.MountChanged;
+import dev.ryvrook.trackerapi.api.event.MovementEdge;
+import dev.ryvrook.trackerapi.api.event.PlayerChatted;
+import dev.ryvrook.trackerapi.api.event.PlayerCommand;
+import dev.ryvrook.trackerapi.api.event.PlayerJoined;
+import dev.ryvrook.trackerapi.api.event.PlayerLeft;
+import dev.ryvrook.trackerapi.api.event.PlayerMoved;
+import dev.ryvrook.trackerapi.api.event.PlayerRespawned;
+import dev.ryvrook.trackerapi.api.event.PlayerTeleported;
+import dev.ryvrook.trackerapi.api.event.PlayerWorldChanged;
+import dev.ryvrook.trackerapi.api.event.ProjectileLanded;
+import dev.ryvrook.trackerapi.api.event.WorldEventEnded;
+import dev.ryvrook.trackerapi.api.event.ZoneDiscovered;
+import dev.ryvrook.trackerapi.bus.Publisher;
+import dev.ryvrook.trackerapi.facts.KillStreaks;
+
+import java.util.EnumSet;
+import java.util.Set;
+import java.util.UUID;
+
+/**
+ * Turns events into counter writes, on the publishing thread. One switch over the kind, a handful of
+ * map writes under the player's monitor, no allocation on the busy kinds. The rules here are the
+ * canonical ones every consumer can rely on, see {@link Keys}.
+ *
+ * <p>Creative mode counts here as it does in the engine, the {@code creative} flag on the block events
+ * lets a consumer skip it. Repeat placements and the player's own recent placements are counted on the
+ * per id keys but not on the totals, which is the Feats and Chronicle anti farm rule.
+ */
+public final class CounterSink implements Publisher.Sink {
+    private static final Set<EventKind> WANTED = EnumSet.of(EventKind.BLOCK_BROKEN, EventKind.BLOCK_PLACED,
+            EventKind.BLOCK_USED, EventKind.ITEM_CRAFTED, EventKind.ITEM_PICKED_UP, EventKind.ITEMS_GAINED,
+            EventKind.ITEMS_LOST, EventKind.ITEM_CONSUMED, EventKind.ITEM_DROPPED, EventKind.DAMAGE_DEALT,
+            EventKind.ENTITY_DIED, EventKind.CREATURE_TAMED, EventKind.PROJECTILE_LANDED, EventKind.INTERACTION_STARTED,
+            EventKind.PLAYER_JOINED, EventKind.PLAYER_LEFT, EventKind.PLAYER_WORLD_CHANGED, EventKind.PLAYER_RESPAWNED,
+            EventKind.PLAYER_TELEPORTED, EventKind.PLAYER_CHATTED, EventKind.PLAYER_COMMAND, EventKind.ZONE_DISCOVERED,
+            EventKind.PLAYER_MOVED, EventKind.MOVEMENT_EDGE, EventKind.MOUNT_CHANGED, EventKind.MEMORY_RECORDED,
+            EventKind.EFFECT_CHANGED, EventKind.WORLD_EVENT_ENDED, EventKind.ENTITY_USED, EventKind.INSTANCE_DISCOVERED,
+            EventKind.ITEM_BROKE, EventKind.OBJECTIVE_COMPLETED, EventKind.PLAYER_SLEPT, EventKind.RECIPE_LEARNED,
+            EventKind.REPUTATION_CHANGED);
+
+    private final CounterStore store;
+    private final KillStreaks streaks = new KillStreaks();
+    private volatile boolean countCreative = true;
+
+    public CounterSink(CounterStore store) {
+        this.store = store;
+    }
+
+    public void setCountCreative(boolean on) {
+        countCreative = on;
+    }
+
+    public KillStreaks streaks() {
+        return streaks;
+    }
+
+    @Override
+    public boolean wants(EventKind kind) {
+        return WANTED.contains(kind);
+    }
+
+    @Override
+    public void accept(TrackerEvent event) {
+        UUID p = event.player();
+        String w = event.world();
+        switch (event) {
+            case BlockBroken e -> {
+                if (p == null || (e.creative() && !countCreative)) {
+                    return;
+                }
+                store.addId(p, Keys.P_BLOCK_BROKEN, e.blockId(), e.playerPlaced() ? null : Keys.BLOCK_BROKEN, 1, w);
+            }
+            case BlockPlaced e -> {
+                if (p == null || (e.creative() && !countCreative)) {
+                    return;
+                }
+                store.addId(p, Keys.P_BLOCK_PLACED, e.itemId(), e.repeatSpot() ? null : Keys.BLOCK_PLACED, 1, w);
+            }
+            case BlockUsed e -> store.addId(p, Keys.P_BLOCK_USED, e.blockId(), Keys.BLOCK_USED, 1, w);
+            case ItemCrafted e -> store.addId(p, Keys.P_ITEM_CRAFTED, e.itemId(), Keys.ITEM_CRAFTED, Math.max(1, e.quantity()), w);
+            case ItemPickedUp e -> {
+                if (e.fresh() > 0) {
+                    store.addId(p, Keys.P_ITEM_PICKED_UP, e.itemId(), Keys.ITEM_PICKED_UP, e.fresh(), w);
+                }
+            }
+            case ItemsGained e -> {
+                if (e.fresh() > 0) {
+                    store.addId(p, Keys.P_ITEMS_GAINED, e.itemId(), Keys.ITEMS_GAINED, e.fresh(), w);
+                }
+            }
+            case ItemsLost e -> store.addId(p, Keys.P_ITEMS_LOST, e.itemId(), Keys.ITEMS_LOST, e.quantity(), w);
+            case ItemConsumed e -> store.addId(p, Keys.P_ITEM_CONSUMED, e.itemId(), Keys.ITEM_CONSUMED, 1, w);
+            case ItemDropped e -> store.addId(p, Keys.P_ITEM_DROPPED, e.itemId(), Keys.ITEM_DROPPED, e.quantity(), w);
+            case DamageDealt e -> damage(e, w);
+            case EntityDied e -> death(e, w);
+            case CreatureTamed e -> store.addId(p, Keys.P_TAMED, e.npcTypeId(), Keys.CREATURE_TAMED, 1, w);
+            case ProjectileLanded e -> {
+                UUID shooter = e.shooter() == null ? null : e.shooter().playerUuid();
+                if (shooter != null) {
+                    store.add(shooter, Keys.SHOTS_FIRED, 1, w);
+                    if (e.hit() != null) {
+                        store.add(shooter, Keys.SHOTS_HIT, 1, w);
+                    }
+                }
+            }
+            case InteractionStarted e -> {
+                store.addId(p, Keys.P_INTERACTION, e.rootId(), Keys.INTERACTIONS, 1, w);
+                if (e.affordable() && e.type() != null && e.type().startsWith("Ability")) {
+                    store.add(p, Keys.ABILITY_CASTS, 1, w);
+                }
+            }
+            case PlayerJoined e -> store.add(p, Keys.JOINS, 1, w);
+            case PlayerLeft e -> {
+                long seconds = e.sessionMillis() / 1000;
+                if (seconds > 0) {
+                    store.raise(p, Keys.SESSION_LONGEST, seconds);
+                }
+                streaks.forget(p);
+            }
+            case PlayerWorldChanged e -> {
+                store.addId(p, Keys.P_WORLD_ENTERED, w, e.fromWorld() == null ? null : Keys.WORLD_CHANGES, 1, null);
+                if (e.portalTypeId() != null) {
+                    store.addId(p, Keys.P_PORTAL, e.portalTypeId(), Keys.PORTALS_ENTERED, 1, w);
+                }
+            }
+            case PlayerRespawned e -> store.add(p, Keys.RESPAWNS, 1, w);
+            case PlayerTeleported e -> store.add(p, Keys.TELEPORTS, 1, w);
+            case PlayerChatted e -> {
+                if (!e.cancelled()) {
+                    store.add(p, Keys.CHAT, 1, w);
+                }
+            }
+            case PlayerCommand e -> store.addId(p, Keys.P_COMMAND, e.command(), Keys.COMMANDS, 1, w);
+            case ZoneDiscovered e -> store.discover(p, Keys.P_ZONE, e.zone(), Keys.ZONES_DISCOVERED);
+            case PlayerMoved e -> {
+                if (e.metres() <= 0) {
+                    return;
+                }
+                store.add(p, Keys.DISTANCE, e.metres(), w);
+                switch (e.mode()) {
+                    case SWIM -> store.add(p, Keys.DISTANCE_SWIM, e.metres(), w);
+                    case GLIDE -> store.add(p, Keys.DISTANCE_GLIDE, e.metres(), w);
+                    case RIDE -> store.add(p, Keys.DISTANCE_RIDE, e.metres(), w);
+                    default -> { }
+                }
+                long y = Math.round(e.y());
+                store.raise(p, Keys.HIGHEST_Y, y);
+                store.lower(p, Keys.LOWEST_Y, y);
+            }
+            case MovementEdge e -> {
+                switch (e.edge()) {
+                    case JUMP -> store.add(p, Keys.JUMPS, 1, w);
+                    case GLIDE_START -> store.add(p, Keys.GLIDES, 1, w);
+                    case LANDED -> {
+                        long fell = Math.round(e.fallDistance());
+                        if (fell >= 3) {
+                            store.add(p, Keys.FALLS, 1, w);
+                            store.add(p, Keys.FALL_DISTANCE, fell, w);
+                            store.raise(p, Keys.LONGEST_FALL, fell);
+                        }
+                    }
+                    default -> { }
+                }
+            }
+            case MountChanged e -> {
+                if (e.mounted()) {
+                    store.addId(p, Keys.P_MOUNT, e.mountTypeId(), Keys.MOUNTS, 1, w);
+                }
+            }
+            case MemoryRecorded e -> store.discover(p, Keys.P_MEMORY, e.memoryId(), Keys.MEMORIES);
+            case EffectChanged e -> {
+                if (e.applied()) {
+                    store.addId(p, Keys.P_EFFECT, e.effectId(), Keys.EFFECTS_RECEIVED, 1, w);
+                }
+            }
+            case WorldEventEnded e -> {
+                for (UUID u : e.participants()) {
+                    store.addId(u, Keys.P_WORLD_EVENT, e.eventId(), Keys.WORLD_EVENTS, 1, w);
+                }
+            }
+            case EntityUsed e -> store.addId(p, Keys.P_ENTITY_USED, e.target() == null ? null : e.target().typeId(), Keys.ENTITIES_USED, 1, w);
+            case InstanceDiscovered e -> store.discover(p, Keys.P_INSTANCE, e.instanceId() != null ? e.instanceId() : String.valueOf(e.instanceWorldUuid()), Keys.INSTANCES_DISCOVERED);
+            case ItemBroke e -> store.addId(p, Keys.P_ITEM_BROKEN, e.itemId(), Keys.ITEMS_BROKEN, 1, w);
+            case ObjectiveCompleted e -> store.discover(p, Keys.P_OBJECTIVE, e.objectiveId(), Keys.OBJECTIVES_COMPLETED);
+            case PlayerSlept e -> {
+                if (e.asleep()) {
+                    store.add(p, Keys.SLEEPS, 1, w);
+                }
+            }
+            case RecipeLearned e -> store.discover(p, Keys.P_RECIPE, e.recipeId(), Keys.RECIPES_KNOWN);
+            case ReputationChanged e -> {
+                PlayerCounters pc = store.live(p);
+                if (pc != null && e.groupId() != null) {
+                    pc.set(Keys.of(Keys.P_REPUTATION, e.groupId()), e.to());
+                }
+            }
+            default -> { }
+        }
+    }
+
+    private void damage(DamageDealt e, String w) {
+        long amount = Math.round(e.amount());
+        if (amount <= 0) {
+            return;
+        }
+        UUID attacker = e.attacker() == null ? null : e.attacker().playerUuid();
+        UUID victim = e.victim() == null ? null : e.victim().playerUuid();
+        if (attacker != null) {
+            store.add(attacker, Keys.DAMAGE_DEALT, amount, w);
+            store.raise(attacker, Keys.BIGGEST_HIT, amount);
+        }
+        if (victim != null) {
+            store.add(victim, Keys.DAMAGE_TAKEN, amount, w);
+            store.addId(victim, Keys.P_DAMAGE_CAUSE, e.causeId(), null, amount, w);
+        }
+    }
+
+    private void death(EntityDied e, String w) {
+        Actor victim = e.victim();
+        Actor killer = e.killer();
+        UUID victimPlayer = victim == null ? null : victim.playerUuid();
+        UUID killerPlayer = killer == null ? null : killer.playerUuid();
+        if (victimPlayer != null) {
+            store.add(victimPlayer, Keys.DEATHS, 1, w);
+            store.addId(victimPlayer, Keys.P_DEATH, e.causeId(), null, 1, w);
+            if (killer != null && killer.kind() != Actor.Kind.WORLD) {
+                store.addId(victimPlayer, Keys.P_KILLED_BY, killer.typeId(), null, 1, w);
+            }
+            streaks.died(victimPlayer);
+        }
+        if (e.boss() && !e.participants().isEmpty()) {
+            for (UUID u : e.participants()) {
+                credit(u, victim, u.equals(killerPlayer) && e.ranged(), w);
+                store.add(u, Keys.KILLS_BOSS, 1, w);
+                if (e.untouched().contains(u)) {
+                    store.add(u, Keys.BOSS_FLAWLESS, 1, w);
+                }
+            }
+            return;
+        }
+        if (killerPlayer != null && victim != null) {
+            credit(killerPlayer, victim, e.ranged(), w);
+            if (e.boss()) {
+                store.add(killerPlayer, Keys.KILLS_BOSS, 1, w);
+            }
+        }
+    }
+
+    private void credit(UUID killer, Actor victim, boolean ranged, String w) {
+        store.addId(killer, Keys.P_KILL, victim.typeId(), Keys.KILLS, 1, w);
+        if (victim.isPlayer()) {
+            store.add(killer, Keys.KILLS_PLAYER, 1, w);
+        }
+        if (ranged) {
+            store.add(killer, Keys.KILLS_RANGED, 1, w);
+        }
+        int streak = streaks.killed(killer);
+        store.raise(killer, Keys.KILL_STREAK_BEST, streak);
+    }
+}
