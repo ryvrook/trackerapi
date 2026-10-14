@@ -5,7 +5,7 @@ import dev.ryvrook.trackerapi.api.Header;
 import dev.ryvrook.trackerapi.api.TrackerEvent;
 
 /**
- * A player crafted a recipe. {@code quantity} is how many times the recipe ran, {@code itemId} the primary output.
+ * A player crafted a recipe. {@code quantity} is how many times the recipe ran in this event, {@code itemId} the primary output. A queued craft at a bench arrives as one event per finished unit with quantity one, an instant craft as one event with the whole count.
  *
  * <p>Immutable. Components are only ever added, so read through the accessors.
  */

@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.0.2
+
+- Queued crafts count one run per event. The engine fires one craft event per finished unit of a bench queue and stamps each with the quantity of the whole batch, so adding the quantity counted a batch of a hundred as ten thousand. Instant crafts still carry their real count in one event.
+
 ## 1.0.1
 
 - Chunk unloads are read from the chunk store's lifecycle callback instead of the engine's unload event. The engine invokes that event from a parallel worker, and a system registered for it made the engine fork off the world thread and crash the world as soon as chunks unloaded with players online.

@@ -182,7 +182,7 @@ public final class ItemHooks implements HookSet {
                 return;
             }
             s.publisher.publish(new ItemCrafted(s.header(worldName(store), uuid), recipe.getId(), itemId,
-                    Math.max(1, event.getQuantity())));
+                    CraftCounts.of(store, ref, recipe, event.getQuantity())));
         }
     }
 
