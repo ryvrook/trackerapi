@@ -37,6 +37,7 @@ import dev.ryvrook.trackerapi.api.event.PlayerRespawned;
 import dev.ryvrook.trackerapi.api.event.PlayerTeleported;
 import dev.ryvrook.trackerapi.api.event.PlayerWorldChanged;
 import dev.ryvrook.trackerapi.api.event.ProjectileLanded;
+import dev.ryvrook.trackerapi.api.event.ProjectileLaunched;
 import dev.ryvrook.trackerapi.api.event.WorldEventEnded;
 import dev.ryvrook.trackerapi.api.event.ZoneDiscovered;
 import dev.ryvrook.trackerapi.bus.Publisher;
@@ -59,7 +60,7 @@ public final class CounterSink implements Publisher.Sink {
     private static final Set<EventKind> WANTED = EnumSet.of(EventKind.BLOCK_BROKEN, EventKind.BLOCK_PLACED,
             EventKind.BLOCK_USED, EventKind.ITEM_CRAFTED, EventKind.ITEM_PICKED_UP, EventKind.ITEMS_GAINED,
             EventKind.ITEMS_LOST, EventKind.ITEM_CONSUMED, EventKind.ITEM_DROPPED, EventKind.DAMAGE_DEALT,
-            EventKind.ENTITY_DIED, EventKind.CREATURE_TAMED, EventKind.PROJECTILE_LANDED, EventKind.INTERACTION_STARTED,
+            EventKind.ENTITY_DIED, EventKind.CREATURE_TAMED, EventKind.PROJECTILE_LANDED, EventKind.PROJECTILE_LAUNCHED, EventKind.INTERACTION_STARTED,
             EventKind.PLAYER_JOINED, EventKind.PLAYER_LEFT, EventKind.PLAYER_WORLD_CHANGED, EventKind.PLAYER_RESPAWNED,
             EventKind.PLAYER_TELEPORTED, EventKind.PLAYER_CHATTED, EventKind.PLAYER_COMMAND, EventKind.ZONE_DISCOVERED,
             EventKind.PLAYER_MOVED, EventKind.MOVEMENT_EDGE, EventKind.MOUNT_CHANGED, EventKind.MEMORY_RECORDED,
@@ -123,13 +124,16 @@ public final class CounterSink implements Publisher.Sink {
             case DamageDealt e -> damage(e, w);
             case EntityDied e -> death(e, w);
             case CreatureTamed e -> store.addId(p, Keys.P_TAMED, e.npcTypeId(), Keys.CREATURE_TAMED, 1, w);
-            case ProjectileLanded e -> {
+            case ProjectileLaunched e -> {
                 UUID shooter = e.shooter() == null ? null : e.shooter().playerUuid();
                 if (shooter != null) {
                     store.add(shooter, Keys.SHOTS_FIRED, 1, w);
-                    if (e.hit() != null) {
-                        store.add(shooter, Keys.SHOTS_HIT, 1, w);
-                    }
+                }
+            }
+            case ProjectileLanded e -> {
+                UUID shooter = e.shooter() == null ? null : e.shooter().playerUuid();
+                if (shooter != null && e.hit() != null) {
+                    store.add(shooter, Keys.SHOTS_HIT, 1, w);
                 }
             }
             case InteractionStarted e -> {

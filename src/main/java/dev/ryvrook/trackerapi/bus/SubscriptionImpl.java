@@ -89,6 +89,12 @@ final class SubscriptionImpl implements Subscription {
     }
 
     @Override
+    public boolean isSuspended() {
+        long until = suspendedUntil;
+        return until != 0 && System.nanoTime() < until;
+    }
+
+    @Override
     public void close() {
         if (active) {
             active = false;

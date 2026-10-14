@@ -24,6 +24,11 @@ public interface Subscription extends AutoCloseable {
     /** How many calls threw. Each failure is logged at most once a minute per listener. */
     long failures();
 
+    /** True while the listener is suspended for running over its budget. */
+    default boolean isSuspended() {
+        return false;
+    }
+
     @Override
     void close();
 }

@@ -331,7 +331,7 @@ public final class TrackerCommand extends AbstractCommandCollection {
         lines.add(subs.isEmpty() ? "No subscriptions." : subs.size() + " subscriptions.");
         for (Subscription sub : subs) {
             lines.add("  " + sub + ", delivered " + sub.delivered() + ", failures " + sub.failures()
-                    + (sub.isActive() ? "" : ", closed"));
+                    + (sub.isSuspended() ? ", suspended" : "") + (sub.isActive() ? "" : ", closed"));
         }
         return lines;
     }
