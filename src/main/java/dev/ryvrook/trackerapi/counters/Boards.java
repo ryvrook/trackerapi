@@ -74,8 +74,8 @@ public final class Boards {
                 Map<String, Long> counters = store.snapshotAny(uuid);
                 for (Map.Entry<String, Long> e : counters.entrySet()) {
                     String key = e.getKey();
-                    if (e.getValue() <= 0) {
-                        continue;
+                    if (e.getValue() <= 0 && !CounterRules.isMin(key)) {
+                        continue; // a lowest value of zero or below is a real record, not an empty slot
                     }
                     boolean total = key.indexOf(':') < 0;
                     if (!total && !watched.contains(key)) {

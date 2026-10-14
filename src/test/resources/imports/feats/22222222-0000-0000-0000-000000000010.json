@@ -1,0 +1,29 @@
+{
+  "Version": 1,
+  "Uuid": "22222222-0000-0000-0000-000000000010",
+  "Username": "Birch",
+  "Stats": {
+    "joins": 1,
+    "feats_unlocked": 4,
+    "zone:Emerald_Wilds": 1,
+    "crafted:Portal_Device": 1,
+    "zones_discovered": 2,
+    "zone:Howling_Sands": 1,
+    "deaths": 1
+  },
+  "Unlocked": {
+    "gatekeeper": 1690000000000,
+    "world_gateway": 1791914224240,
+    "first_gateway": 1791914224241,
+    "new_horizons": 1791915083105,
+    "sightseer": 1791915083105,
+    "welcome": 1791915083105,
+    "first_death": 1791915083105
+  },
+  "PendingRewards": [
+    "new_horizons",
+    "sightseer",
+    "welcome",
+    "first_death"
+  ]
+}

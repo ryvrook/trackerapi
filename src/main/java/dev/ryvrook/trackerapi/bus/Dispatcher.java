@@ -13,9 +13,10 @@ import java.util.logging.Level;
 
 /**
  * The {@code TrackerAPI-dispatch} thread. Polls the async queue, gathers up to {@link #BATCH} events and
- * hands the batch to every async listener in subscription order, each within its budget. The thread
- * parks when the queue is empty and is unparked by the publisher, so an idle server costs nothing and a
- * busy one delivers within a millisecond or two.
+ * hands the batch to every async listener in subscription order, each within its budget. While events
+ * flow the thread looks at the queue every millisecond, so a busy server gets its events within a
+ * millisecond or two and its world threads never pay for waking this one. After 50 empty looks it parks
+ * and the next publish unparks it, so an idle server costs nothing.
  *
  * <p>A listener that stays over its budget for {@link #SUSPEND_AFTER} batches in a row is suspended for
  * five minutes with one warning, as the Chronicle change bus does, so one slow consumer cannot hold up
@@ -26,6 +27,10 @@ public final class Dispatcher implements Runnable {
     static final int SUSPEND_AFTER = 20;
     static final long SUSPEND_NANOS = TimeUnit.MINUTES.toNanos(5);
     private static final long PARK_NANOS = TimeUnit.MILLISECONDS.toNanos(50);
+    /** After a batch the thread naps this long between looks, without asking publishers to wake it. */
+    private static final long NAP_NANOS = TimeUnit.MILLISECONDS.toNanos(1);
+    /** Empty looks in a row before the thread parks for real and publishers wake it again. */
+    private static final int NAPS = 50;
 
     private final Publisher publisher;
     private final HytaleLogger logger;
@@ -34,6 +39,8 @@ public final class Dispatcher implements Runnable {
     private volatile long budgetNanos = TimeUnit.MILLISECONDS.toNanos(5);
     private volatile boolean stop;
     private volatile Thread thread;
+    /** True while the thread is parked with nothing to do, the only time a publish pays for an unpark. */
+    private volatile boolean idle;
     private final List<TrackerEvent> batch = new ArrayList<>(BATCH);
 
     public Dispatcher(Publisher publisher, HytaleLogger logger, Perf perf) {
@@ -54,8 +61,15 @@ public final class Dispatcher implements Runnable {
         t.start();
     }
 
-    /** Called by the publisher after an offer. Cheap when the thread is already awake. */
+    /**
+     * Called by the publisher after an offer. One volatile read unless the thread is idle. The offer and the
+     * read of {@code idle} here, and the write of {@code idle} and the second look at the queue in
+     * {@link #run}, are all volatile, so either the thread sees the event or this call sees it idle.
+     */
     public void wake() {
+        if (!idle) {
+            return;
+        }
         Thread t = thread;
         if (t != null) {
             LockSupport.unpark(t);
@@ -81,15 +95,28 @@ public final class Dispatcher implements Runnable {
     @Override
     public void run() {
         MpmcQueue<TrackerEvent> queue = publisher.queue();
+        int naps = NAPS;
         while (true) {
             TrackerEvent first = queue.poll();
             if (first == null) {
                 if (stop) {
                     return;
                 }
-                LockSupport.parkNanos(this, PARK_NANOS);
+                if (naps < NAPS) {
+                    // Busy a moment ago. Nap and look again, so a steady stream is gathered into batches and
+                    // no world thread pays for waking this one per event.
+                    naps++;
+                    LockSupport.parkNanos(this, NAP_NANOS);
+                    continue;
+                }
+                idle = true;
+                if (queue.isEmpty() && !stop) {
+                    LockSupport.parkNanos(this, PARK_NANOS);
+                }
+                idle = false;
                 continue;
             }
+            naps = 0;
             batch.add(first);
             TrackerEvent e;
             while (batch.size() < BATCH && (e = queue.poll()) != null) {

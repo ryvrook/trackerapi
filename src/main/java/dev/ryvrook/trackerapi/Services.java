@@ -12,6 +12,7 @@ import dev.ryvrook.trackerapi.util.Perf;
 
 import java.nio.file.Path;
 import java.util.UUID;
+import java.util.concurrent.Executor;
 import java.util.concurrent.ScheduledExecutorService;
 
 /**
@@ -47,6 +48,26 @@ public final class Services {
         this.players = players;
         this.io = io;
         this.timer = timer;
+    }
+
+    /**
+     * A hub for tests, built as the plugin builds it but without an engine. Counter file work runs on
+     * {@code io}, which may be a direct executor. The IO and timer executors start their threads only when
+     * something is queued on them.
+     */
+    public static Services forTests(HytaleLogger logger, Path dataDir, TrackerConfig config, Executor io) {
+        Perf perf = new Perf();
+        Publisher publisher = new Publisher(logger, perf, config.queueCapacity, null);
+        CounterStore counters = new CounterStore(dataDir, logger, io, perf);
+        counters.setPerWorld(config.perWorldCounters);
+        CounterSink sink = new CounterSink(counters);
+        sink.setCountCreative(config.countCreative);
+        publisher.setTracked(config.trackedKinds());
+        publisher.addSink(sink);
+        ScheduledExecutorService ioThread = io instanceof ScheduledExecutorService s ? s
+                : dev.ryvrook.trackerapi.util.Threads.single("TrackerAPI-io", logger);
+        return new Services(logger, dataDir, config, perf, publisher, new Dispatcher(publisher, logger, perf), counters, sink,
+                new PlayerRegistry(), ioThread, dev.ryvrook.trackerapi.util.Threads.single("TrackerAPI-timer", logger));
     }
 
     public TrackerConfig config() {

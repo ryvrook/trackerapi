@@ -1,0 +1,27 @@
+{
+  "Version": 1,
+  "Uuid": "11111111-2222-3333-4444-555555555555",
+  "Username": "Alder",
+  "Stats": {
+    "joins": 1,
+    "feats_unlocked": 4,
+    "zone:Emerald_Wilds": 1,
+    "crafted:Portal_Device": 1,
+    "zones_discovered": 2,
+    "zone:Howling_Sands": 1,
+    "deaths": 1
+  },
+  "Unlocked": {
+    "gatekeeper": 1700000000000,
+    "new_horizons": 1791915083101,
+    "sightseer": 1791915083101,
+    "welcome": 1791915083101,
+    "first_death": 1791915083101
+  },
+  "PendingRewards": [
+    "new_horizons",
+    "sightseer",
+    "welcome",
+    "first_death"
+  ]
+}
