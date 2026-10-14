@@ -113,12 +113,43 @@ public final class EntityDiedSystem extends DeathSystems.OnDeathSystem {
             // the death still counts without its cause
         }
         boolean killerArmourless = killerPlayer != null && CombatReads.wearsNoArmour(store, killerRef);
+        Set<UUID> armourless = boss && !participants.isEmpty() ? armourless(store, participants, killerPlayer, killerArmourless)
+                : Set.of();
         Vector3d pos = CombatReads.position(store, ref);
         String world = PlayerEventSystem.worldName(store);
         UUID about = victimPlayer != null ? victimPlayer : killerPlayer;
         s.publisher.publish(new EntityDied(s.header(world, about), victim, killer, cause, CombatReads.effectId(info),
                 ranged, viaEffect, pos != null ? pos.x : 0, pos != null ? pos.y : 0, pos != null ? pos.z : 0, boss,
-                participants, untouched, killerArmourless, CombatReads.portalTypeId(store), itemsLost(death)));
+                participants, untouched, killerArmourless, CombatReads.portalTypeId(store), itemsLost(death), armourless));
+    }
+
+    /**
+     * The credited players still in this world who wear no armour, the Feats creditGobliterator read. Boss
+     * kills are rare, so the walk over the world's players costs nothing worth measuring.
+     */
+    private static Set<UUID> armourless(Store<EntityStore> store, List<UUID> participants, UUID killer, boolean killerArmourless) {
+        Set<UUID> out = new HashSet<>();
+        if (killer != null && killerArmourless) {
+            out.add(killer);
+        }
+        try {
+            com.hypixel.hytale.server.core.universe.world.World world = PlayerEventSystem.worldOf(store);
+            if (world == null || !store.isInThread()) {
+                return Set.copyOf(out);
+            }
+            for (com.hypixel.hytale.server.core.universe.PlayerRef playerRef : world.getPlayerRefs()) {
+                UUID player = playerRef.getUuid();
+                if (player == null || player.equals(killer) || !participants.contains(player)) {
+                    continue;
+                }
+                if (CombatReads.wearsNoArmour(store, playerRef.getReference())) {
+                    out.add(player);
+                }
+            }
+        } catch (RuntimeException | LinkageError e) {
+            Guard.failed(e);
+        }
+        return Set.copyOf(out);
     }
 
     /**
