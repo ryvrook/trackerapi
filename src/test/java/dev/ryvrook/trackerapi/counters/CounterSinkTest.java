@@ -37,6 +37,7 @@ import dev.ryvrook.trackerapi.api.event.PlayerSlept;
 import dev.ryvrook.trackerapi.api.event.PlayerTeleported;
 import dev.ryvrook.trackerapi.api.event.PlayerWorldChanged;
 import dev.ryvrook.trackerapi.api.event.ProjectileLanded;
+import dev.ryvrook.trackerapi.api.event.ProjectileLaunched;
 import dev.ryvrook.trackerapi.api.event.RecipeLearned;
 import dev.ryvrook.trackerapi.api.event.ReputationChanged;
 import dev.ryvrook.trackerapi.api.event.WorldEventEnded;
@@ -277,6 +278,9 @@ class CounterSinkTest {
     @Test
     void creaturesProjectilesAndInteractions() {
         accept(new CreatureTamed(h(P), "Cow", UUID.randomUUID(), "Cow_Tamed"));
+        accept(new ProjectileLaunched(h(P), player(P), "Arrow", true));
+        accept(new ProjectileLaunched(h(P), player(P), "Arrow", true));
+        accept(new ProjectileLaunched(h(P), goblin(), "Arrow", true));
         accept(new ProjectileLanded(h(P), player(P), "Arrow", goblin(), 0, 0, 0));
         accept(new ProjectileLanded(h(P), player(P), "Arrow", null, 0, 0, 0));
         accept(new ProjectileLanded(h(P), goblin(), "Arrow", player(P), 0, 0, 0));
@@ -287,7 +291,7 @@ class CounterSinkTest {
 
         assertEquals(1, c(Keys.CREATURE_TAMED));
         assertEquals(1, c("tamed:Cow"));
-        assertEquals(2, c(Keys.SHOTS_FIRED));
+        assertEquals(2, c(Keys.SHOTS_FIRED), "shots are counted when launched by a player");
         assertEquals(1, c(Keys.SHOTS_HIT));
         assertEquals(3, c(Keys.INTERACTIONS));
         assertEquals(2, c("interaction:Root_Dash"));
