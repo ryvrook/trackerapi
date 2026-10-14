@@ -16,6 +16,9 @@ public final class Hooks {
     public static List<HookSet> all(Services services) {
         List<HookSet> sets = new ArrayList<>();
         // Filled in by the hooks packages. Each entry is one class, added as it is written.
+        // ---- world ----
+        sets.add(new WorldHooks());
+        // ---- end world ----
         return sets;
     }
 }
