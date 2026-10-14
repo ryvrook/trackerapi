@@ -1,0 +1,83 @@
+name: Bug report
+description: Something in TrackerAPI does not work the way the README says it should.
+title: "[Bug] "
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for the report. Fill in what you can. A server log excerpt and your config make most bugs quick to fix.
+  - type: input
+    id: version
+    attributes:
+      label: TrackerAPI version
+      description: Look at the jar file name in the mods folder, or run `/trackerapi status`.
+      placeholder: "1.1.0"
+    validations:
+      required: true
+  - type: input
+    id: server
+    attributes:
+      label: Hytale server version
+      description: The version printed at the top of the server log.
+      placeholder: "0.7.0"
+    validations:
+      required: true
+  - type: input
+    id: mods
+    attributes:
+      label: Other mods installed
+      description: Every other jar in the mods folder, with versions when you know them.
+      placeholder: Feats 1.5.0, Chronicle Stats 1.2.0, Atlas 1.6.0
+    validations:
+      required: false
+  - type: input
+    id: feat
+    attributes:
+      label: Feat id
+      description: The id of the feat involved, when the problem is about one feat not unlocking or unlocking at the wrong time.
+      placeholder: first_steps
+    validations:
+      required: false
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened
+      description: What you saw, and what you expected instead.
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      placeholder: |
+        1. Start the server with ...
+        2. Run ...
+        3. See ...
+    validations:
+      required: true
+  - type: textarea
+    id: log
+    attributes:
+      label: Server log
+      description: The lines around the problem from the server log. Any stack trace is especially useful. This will be formatted as code.
+      render: text
+    validations:
+      required: false
+  - type: textarea
+    id: config
+    attributes:
+      label: Config
+      description: The mod config file, with any secrets such as tokens removed. This will be formatted as code.
+      render: json
+    validations:
+      required: false
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Before posting
+      options:
+        - label: I searched the open issues and did not find this one.
+          required: true
+        - label: I am on the latest release of TrackerAPI.
+          required: false
