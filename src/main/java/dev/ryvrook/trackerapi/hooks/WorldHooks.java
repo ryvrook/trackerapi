@@ -5,7 +5,6 @@ import dev.ryvrook.trackerapi.Services;
 import dev.ryvrook.trackerapi.hooks.world.ChunkGeneratedListener;
 import dev.ryvrook.trackerapi.hooks.world.ChunkLoadSystem;
 import dev.ryvrook.trackerapi.hooks.world.ChunkSaveSystem;
-import dev.ryvrook.trackerapi.hooks.world.ChunkUnloadSystem;
 import dev.ryvrook.trackerapi.hooks.world.MoonPhaseSystem;
 import dev.ryvrook.trackerapi.hooks.world.TriggerVolumeListener;
 import dev.ryvrook.trackerapi.hooks.world.WorldAddedListener;
@@ -35,8 +34,7 @@ public final class WorldHooks implements HookSet {
         r.listener("world removed", events -> new WorldRemovedListener(s).register(events));
         r.chunkSystem("chunk saved", () -> new ChunkSaveSystem(s));
         r.listener("chunk generated", events -> new ChunkGeneratedListener(s).register(events));
-        r.chunkSystem("chunk loaded", () -> new ChunkLoadSystem(s));
-        r.chunkSystem("chunk unloaded", () -> new ChunkUnloadSystem(s));
+        r.chunkSystem("chunk loaded and unloaded", () -> new ChunkLoadSystem(s));
         r.entitySystem("moon phase", () -> new MoonPhaseSystem(s));
         WorldClockPoller poller = new WorldClockPoller(s);
         r.guard("weather", poller::enableWeather);

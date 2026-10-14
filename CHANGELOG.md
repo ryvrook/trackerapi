@@ -1,5 +1,10 @@
 # Changelog
 
+## 1.0.1
+
+- Chunk unloads are read from the chunk store's lifecycle callback instead of the engine's unload event. The engine invokes that event from a parallel worker, and a system registered for it made the engine fork off the world thread and crash the world as soon as chunks unloaded with players online.
+- The prefab paste hook is off for the same reason, since worldgen pastes prefabs from its generator threads. The PREFAB_PASTED kind stays in the API and is never published for now.
+
 ## 1.0.0
 
 First release.

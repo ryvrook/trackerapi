@@ -81,7 +81,9 @@ public final class BlockHooks implements HookSet {
         registrar.entitySystem("block used", () -> new UseSystem(this));
         registrar.entitySystem("block damaged", () -> new DamageSystem(this));
         registrar.entitySystem("block broken by world", () -> new EnvironmentBreakSystem(this));
-        registrar.entitySystem("prefab pasted", () -> new PrefabPasteSystem(this));
+        // PREFAB_PASTED is not hooked. Worldgen pastes prefabs from its generator threads, and a registered
+        // system for the event would make the engine fork a command buffer off the world thread, as the chunk
+        // unload event did on a live server. The kind stays in the API for a later safe source.
     }
 
     // ---- helpers shared with the item hooks -------------------------------------------------------------
