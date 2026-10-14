@@ -16,7 +16,7 @@ import dev.ryvrook.trackerapi.util.Guard;
  * WORLD_ADDED from {@code StartWorldEvent}. The portal type and the instance flag are store and config reads,
  * so they run on the world's own thread, now when the event already is there, else as a posted task. Each
  * read sits in its own try (the Chronicle {@code WorldFactsReader} steps), a world is an instance when it has
- * an instance config or is a portal world.
+ * an instance config or is a portal world. The same task teaches {@code WorldKeys} the world's counter key.
  */
 public final class WorldAddedListener {
     private final Services s;
@@ -30,13 +30,14 @@ public final class WorldAddedListener {
     }
 
     private void onStart(StartWorldEvent event) {
-        if (!s.publisher.wants(EventKind.WORLD_ADDED)) {
-            return;
-        }
         try {
             World world = event.getWorld();
             if (world != null) {
-                WorldTasks.run(world, () -> publish(world));
+                // The counter key of the world is learned whether or not anyone wants the event.
+                WorldTasks.run(world, () -> {
+                    s.counters.worldKeys().learn(world);
+                    publish(world);
+                });
             }
         } catch (RuntimeException | LinkageError e) {
             Guard.failed(e);

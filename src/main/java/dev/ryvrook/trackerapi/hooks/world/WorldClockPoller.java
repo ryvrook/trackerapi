@@ -28,8 +28,8 @@ import java.util.logging.Level;
  * WEATHER_CHANGED and GAME_TIME_SAMPLED. The engine has no event for either, so once a second the timer posts
  * one task per world that has players, through a {@link WorldTasks.Gate} so a lagging world skips rounds
  * instead of queueing them. The task reads {@code WeatherResource} and {@code WorldTimeResource} on that
- * world's thread and diffs against the world's {@link WorldClock}. Weather is published on change, the game
- * time once a minute per world. This is separate from the player sampler and keeps its own per world maps,
+ * world's thread and diffs against the world's {@link WorldClock}. Weather is published for the first reading
+ * of a world and then on change, the game time once a minute per world. This is separate from the player sampler and keeps its own per world maps,
  * which a world removal drops through {@code Forgetting}.
  *
  * <p>Threads. {@link #poll} runs on {@code TrackerAPI-timer} and only posts, the reads run on world threads.
@@ -51,6 +51,7 @@ public final class WorldClockPoller {
     public WorldClockPoller(Services services) {
         this.s = services;
         services.forgetting.onWorld(this::forget);
+        services.forgetting.onSweep(this::sweep);
     }
 
     /** Setup, in a registrar guard. Touches the weather classes so a reshaped engine fails here, not later. */
@@ -132,12 +133,25 @@ public final class WorldClockPoller {
                 Guard.failed(e);
             }
         }
-        // a removal the listener missed still drops its world here
+        // A removal the listener missed still drops its world here. The universe keys its worlds by the lower
+        // case name, so the lookup goes through getWorld, which lower cases, never through the map itself.
         for (String name : clocks.keySet()) {
-            if (!all.containsKey(name)) {
+            if (universe.getWorld(name) == null) {
                 forget(name);
             }
         }
+    }
+
+    /** Once a minute on the timer thread. Drops the entries of worlds removed or replaced under their name. */
+    void sweep() {
+        gate.sweep();
+        worlds.entrySet().removeIf(e -> {
+            if (!WorldTasks.isGone(e.getValue())) {
+                return false;
+            }
+            clocks.remove(e.getKey());
+            return true;
+        });
     }
 
     private void read(World world, String name, WorldClock clock, boolean weather, boolean time) {

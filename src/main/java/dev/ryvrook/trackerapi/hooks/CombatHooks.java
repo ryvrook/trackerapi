@@ -60,7 +60,8 @@ public final class CombatHooks implements HookSet {
         if (vitals > 0) {
             registrar.entitySystem("combat.vitals", () -> new VitalsSystem(s, vitals));
         }
-        s.forgetting.onPlayer(uuid -> {
+        // The last effect set is session state, a relog must diff against a fresh read, not an hour old one.
+        s.forgetting.onLeave(uuid -> {
             EffectSystem e = effects;
             if (e != null) {
                 e.forget(uuid);

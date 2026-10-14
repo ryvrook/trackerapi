@@ -41,11 +41,14 @@ import dev.ryvrook.trackerapi.api.event.ProjectileLaunched;
 import dev.ryvrook.trackerapi.api.event.WorldEventEnded;
 import dev.ryvrook.trackerapi.api.event.ZoneDiscovered;
 import dev.ryvrook.trackerapi.bus.Publisher;
+import dev.ryvrook.trackerapi.facts.Forgetting;
 import dev.ryvrook.trackerapi.facts.KillStreaks;
 
 import java.util.EnumSet;
+import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
+import java.util.concurrent.ConcurrentHashMap;
 
 /**
  * Turns events into counter writes, on the publishing thread. One switch over the kind, a handful of
@@ -53,8 +56,11 @@ import java.util.UUID;
  * canonical ones every consumer can rely on, see {@link Keys}.
  *
  * <p>Creative mode counts here as it does in the engine, the {@code creative} flag on the block events
- * lets a consumer skip it. Repeat placements and the player's own recent placements are counted on the
- * per id keys but not on the totals, which is the Feats and Chronicle anti farm rule.
+ * lets a consumer skip it. The anti farm rules are the Feats ones. Breaking a block the player placed
+ * recently and placing a block on a spot used recently count nothing, neither the total nor the per id key.
+ * Chat counts at most one message per player every five seconds, and a cancelled message never counts.
+ * Kill streaks and the chat timer outlive a relog and are forgotten an hour after the player left, through
+ * {@link Forgetting}.
  */
 public final class CounterSink implements Publisher.Sink {
     private static final Set<EventKind> WANTED = EnumSet.of(EventKind.BLOCK_BROKEN, EventKind.BLOCK_PLACED,
@@ -69,7 +75,11 @@ public final class CounterSink implements Publisher.Sink {
             EventKind.REPUTATION_CHANGED);
 
     private final CounterStore store;
+    /** At most one counted chat message per player in this window, the Feats rule. */
+    public static final long CHAT_GAP_MILLIS = 5_000L;
+
     private final KillStreaks streaks = new KillStreaks();
+    private final Map<UUID, Long> lastChatAt = new ConcurrentHashMap<>();
     private volatile boolean countCreative = true;
 
     public CounterSink(CounterStore store) {
@@ -84,6 +94,12 @@ public final class CounterSink implements Publisher.Sink {
         return streaks;
     }
 
+    /** Forgets the streak and the chat timer of a player once they stayed away for the hour of grace. */
+    public void registerWith(Forgetting forgetting) {
+        forgetting.onPlayer(streaks::forget);
+        forgetting.onPlayer(lastChatAt::remove);
+    }
+
     @Override
     public boolean wants(EventKind kind) {
         return WANTED.contains(kind);
@@ -95,16 +111,16 @@ public final class CounterSink implements Publisher.Sink {
         String w = event.world();
         switch (event) {
             case BlockBroken e -> {
-                if (p == null || (e.creative() && !countCreative)) {
+                if (p == null || e.playerPlaced() || (e.creative() && !countCreative)) {
                     return;
                 }
-                store.addId(p, Keys.P_BLOCK_BROKEN, e.blockId(), e.playerPlaced() ? null : Keys.BLOCK_BROKEN, 1, w);
+                store.addId(p, Keys.P_BLOCK_BROKEN, e.blockId(), Keys.BLOCK_BROKEN, 1, w);
             }
             case BlockPlaced e -> {
-                if (p == null || (e.creative() && !countCreative)) {
+                if (p == null || e.repeatSpot() || (e.creative() && !countCreative)) {
                     return;
                 }
-                store.addId(p, Keys.P_BLOCK_PLACED, e.itemId(), e.repeatSpot() ? null : Keys.BLOCK_PLACED, 1, w);
+                store.addId(p, Keys.P_BLOCK_PLACED, e.itemId(), Keys.BLOCK_PLACED, 1, w);
             }
             case BlockUsed e -> store.addId(p, Keys.P_BLOCK_USED, e.blockId(), Keys.BLOCK_USED, 1, w);
             case ItemCrafted e -> store.addId(p, Keys.P_ITEM_CRAFTED, e.itemId(), Keys.ITEM_CRAFTED, Math.max(1, e.quantity()), w);
@@ -148,10 +164,10 @@ public final class CounterSink implements Publisher.Sink {
                 if (seconds > 0) {
                     store.raise(p, Keys.SESSION_LONGEST, seconds);
                 }
-                streaks.forget(p);
             }
             case PlayerWorldChanged e -> {
-                store.addId(p, Keys.P_WORLD_ENTERED, w, e.fromWorld() == null ? null : Keys.WORLD_CHANGES, 1, null);
+                store.addId(p, Keys.P_WORLD_ENTERED, store.worldKeys().keyOf(w),
+                        e.fromWorld() == null ? null : Keys.WORLD_CHANGES, 1, null);
                 if (e.portalTypeId() != null) {
                     store.addId(p, Keys.P_PORTAL, e.portalTypeId(), Keys.PORTALS_ENTERED, 1, w);
                 }
@@ -159,7 +175,7 @@ public final class CounterSink implements Publisher.Sink {
             case PlayerRespawned e -> store.add(p, Keys.RESPAWNS, 1, w);
             case PlayerTeleported e -> store.add(p, Keys.TELEPORTS, 1, w);
             case PlayerChatted e -> {
-                if (!e.cancelled()) {
+                if (p != null && !e.cancelled() && chatCounts(p, e.header().at())) {
                     store.add(p, Keys.CHAT, 1, w);
                 }
             }
@@ -229,6 +245,19 @@ public final class CounterSink implements Publisher.Sink {
             }
             default -> { }
         }
+    }
+
+    /** True when this message is the first of the player's five second window, which it then opens. */
+    private boolean chatCounts(UUID player, long now) {
+        boolean[] counts = {false};
+        lastChatAt.compute(player, (id, last) -> {
+            if (last == null || now - last >= CHAT_GAP_MILLIS || now < last) {
+                counts[0] = true;
+                return now;
+            }
+            return last;
+        });
+        return counts[0];
     }
 
     private void damage(DamageDealt e, String w) {

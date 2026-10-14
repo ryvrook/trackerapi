@@ -209,4 +209,32 @@ class PublisherTest {
         assertThrows(IllegalStateException.class, () -> pub.subscribe("Late", null, Delivery.ASYNC, e -> { }));
         a.close(); // closing after the bus closed is harmless
     }
+
+    @Test
+    void stopAcceptingSilencesPublishersWhileTheQueueDrains() {
+        Publisher pub = publisher(1024, null);
+        CountingSink sink = new CountingSink(EnumSet.allOf(EventKind.class));
+        pub.addSink(sink);
+        List<TrackerEvent> async = new java.util.concurrent.CopyOnWriteArrayList<>();
+        List<TrackerEvent> sync = new ArrayList<>();
+        Subscription a = pub.subscribe("A", null, Delivery.ASYNC, async::add);
+        pub.subscribe("B", null, Delivery.SYNC, sync::add);
+        pub.publish(TestSupport.broken(P, "Rock_Stone"));
+        assertEquals(1, pub.queued());
+
+        pub.stopAccepting();
+        pub.publish(TestSupport.broken(P, "Rock_Stone"));
+        pub.rebuild(); // a config reload in between does not switch anything back on
+        assertFalse(pub.wants(EventKind.BLOCK_BROKEN));
+        assertEquals(1, sync.size(), "sync listeners hear nothing after the stop");
+        assertEquals(1, sink.got.size(), "nor do the sinks");
+        assertTrue(a.isActive(), "the async subscription stays for the drain");
+
+        Dispatcher d = new Dispatcher(pub, TestSupport.LOGGER, new Perf());
+        d.start();
+        d.stop(TimeUnit.SECONDS.toMillis(5));
+        assertEquals(1, async.size(), "what was queued before the stop is delivered");
+        pub.close();
+        assertFalse(a.isActive());
+    }
 }

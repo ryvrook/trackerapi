@@ -98,7 +98,7 @@ class TrackingBenchmarkTest {
             perId += store.get(uuid, "block_broken:" + b);
         }
         assertEquals(total, perId);
-        assertEquals(total, store.get(uuid, "world:default:block_broken") + store.get(uuid, "world:Instance_Dungeon:block_broken"));
+        assertEquals(total, store.get(uuid, "world:default:block_broken") + store.get(uuid, "world:instance_dungeon:block_broken"));
         assertEquals(total, received.get() + publisher.dropped(EventKind.BLOCK_BROKEN),
                 "every event reached the subscriber or was counted as dropped");
         assertEquals(total, sub.delivered() + publisher.dropped(EventKind.BLOCK_BROKEN));

@@ -5,7 +5,10 @@ import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicInteger;
 
-/** Running kills in a row per player, in memory only. A death or a disconnect ends the streak. */
+/**
+ * Running kills in a row per player, in memory only. A death ends the streak. A relog does not, the streak
+ * is forgotten once the player stayed away for the hour of grace, as Feats does.
+ */
 public final class KillStreaks {
     private final Map<UUID, AtomicInteger> running = new ConcurrentHashMap<>();
 

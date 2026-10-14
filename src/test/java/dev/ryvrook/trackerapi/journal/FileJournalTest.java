@@ -299,6 +299,34 @@ class FileJournalTest {
     }
 
     @Test
+    void aBusyHourKeepsOnlyTheNewestMatchesUpToTheLimit() {
+        // 200 matches in one hour, many sharing a time, so the sequence decides between them.
+        for (int i = 0; i < 200; i++) {
+            journal.accept(broken(T0 + 1_000 + (i / 4) * 10L, "default", STEVE, i % 2 == 0 ? 10 : 900, 64, 10));
+        }
+        journal.tick();
+        clock.set(T0 + HOUR + 1);
+        journal.accept(broken(T0 + HOUR + 500, "default", STEVE, 10, 64, 10));
+        journal.tick();
+
+        List<Journal.Entry> five = find(Journal.query().limit(5));
+        assertEquals(5, five.size());
+        assertEquals(T0 + HOUR + 500, five.get(0).at(), "the later hour comes first");
+        for (int i = 1; i < five.size() - 1; i++) {
+            Journal.Entry a = five.get(i);
+            Journal.Entry b = five.get(i + 1);
+            assertTrue(a.at() > b.at() || (a.at() == b.at() && a.seq() > b.seq()), "newest first by time, then sequence");
+        }
+        assertEquals(T0 + 1_000 + 49 * 10L, five.get(1).at(), "the newest of the busy hour");
+        assertEquals(200, five.get(1).seq());
+        assertEquals(197, five.get(4).seq());
+
+        List<Journal.Entry> near = find(Journal.query().near(10, 64, 10, 1).limit(3));
+        assertEquals(List.of(201L, 199L, 197L), near.stream().map(Journal.Entry::seq).toList(),
+                "the box filter still applies to every kept line");
+    }
+
+    @Test
     void queriesByBoxAndTime() {
         seed();
         List<Journal.Entry> near = find(Journal.query().withWorld("default").near(10, 64, 10, 2));

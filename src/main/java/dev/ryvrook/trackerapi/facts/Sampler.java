@@ -75,6 +75,8 @@ public final class Sampler {
     public static final long OFFLINE_KEEP_MILLIS = TimeUnit.HOURS.toMillis(1);
     private static final double RAD_TO_DEG = 180.0 / Math.PI;
     private static final int UNSEEN = Integer.MIN_VALUE;
+    /** Every this many rounds the longest session of each online player is raised and stale world entries swept. */
+    static final int MINUTE_ROUNDS = 60;
 
     private final Services s;
     private final HytaleLogger logger;
@@ -113,6 +115,7 @@ public final class Sampler {
     public Sampler(Services services, HytaleLogger logger) {
         this.s = services;
         this.logger = logger;
+        services.forgetting.onLeave(this::dropSession);
     }
 
     // ---- lifecycle ------------------------------------------------------------------------------------
@@ -152,17 +155,31 @@ public final class Sampler {
     }
 
     /**
-     * The player left. Their sampler state goes now, the anti farm memory of every fact is forgotten
-     * through {@link Forgetting} once they stayed away for {@link #OFFLINE_KEEP_MILLIS}.
+     * The player left. Their sampler state goes at once through {@link Forgetting#leave}, the anti farm
+     * memory of every fact is forgotten through {@link Forgetting#forget} once they stayed away for
+     * {@link #OFFLINE_KEEP_MILLIS}.
      */
     public void left(UUID uuid, long now) {
+        if (uuid == null) {
+            return;
+        }
+        dropSession(uuid);
+        offlineSince.put(uuid, now);
+    }
+
+    /** Drops what the sampler keeps of a player's session. Any thread. */
+    void dropSession(UUID uuid) {
         if (uuid == null) {
             return;
         }
         moves.forget(uuid);
         rides.forget(uuid);
         states.remove(uuid);
-        offlineSince.put(uuid, now);
+    }
+
+    /** Players the sampler keeps state for, for tests and status. */
+    public int stateCount() {
+        return states.size();
     }
 
     /** The players waiting for their anti farm memory to be forgotten, for tests and status. */
@@ -185,7 +202,11 @@ public final class Sampler {
                 s.counters.add(o.uuid, Keys.PLAYTIME, sampleSeconds, o.world);
             }
             sweepOffline(now);
-            boolean slow = ++rounds % slowEvery == 0;
+            long round = ++rounds;
+            boolean slow = round % slowEvery == 0;
+            if (round % MINUTE_ROUNDS == 0) {
+                minute(now);
+            }
             Universe universe = Universe.get();
             if (universe == null) {
                 return;
@@ -207,6 +228,18 @@ public final class Sampler {
         }
     }
 
+    /**
+     * Once a minute. Raises the longest session of every online player to the session still running, so a
+     * stop or a crash loses at most a minute of it, and drops entries of worlds that went away.
+     */
+    void minute(long now) {
+        for (PlayerRegistry.Online o : s.players.all()) {
+            s.counters.raiseSession(o.uuid, o.sessionStart, now);
+        }
+        gate.sweep();
+        s.forgetting.sweep();
+    }
+
     /** Forgets everything about players who have been gone for more than an hour. */
     void sweepOffline(long now) {
         offlineSince.entrySet().removeIf(e -> {
@@ -225,12 +258,17 @@ public final class Sampler {
         try {
             Store<EntityStore> store = world.getEntityStore().getStore();
             String worldName = world.getName();
+            if (!s.counters.worldKeys().isLearned(worldName)) {
+                s.counters.worldKeys().learn(world); // a world that started before this plugin did
+            }
             long now = System.currentTimeMillis();
             for (PlayerRef pr : world.getPlayerRefs()) {
                 try {
                     samplePlayer(pr, store, worldName, now, slow);
                 } catch (RuntimeException | LinkageError e) {
                     Guard.failed(e);
+                } finally {
+                    dropIfGone(pr);
                 }
             }
         } catch (RuntimeException | LinkageError e) {
@@ -315,6 +353,17 @@ public final class Sampler {
         }
         o.snapshot = new PlayerSnapshot(uuid, o.name, worldName, pos.x, pos.y, pos.z, yaw, pitch, o.gameMode,
                 zone, region, biome, o.creative, swimming, gliding, riding, o.sessionStart, now);
+    }
+
+    /**
+     * A player who left while their sample ran would have their state recreated after the leave dropped
+     * it, so it is dropped again once the sample is done.
+     */
+    private void dropIfGone(PlayerRef pr) {
+        UUID uuid = pr == null ? null : pr.getUuid();
+        if (uuid != null && !s.players.isOnline(uuid)) {
+            dropSession(uuid);
+        }
     }
 
     // ---- movement ---------------------------------------------------------------------------------------

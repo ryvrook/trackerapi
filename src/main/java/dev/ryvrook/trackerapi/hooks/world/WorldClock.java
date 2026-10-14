@@ -6,7 +6,8 @@ import java.util.concurrent.TimeUnit;
 
 /**
  * What the once a second clock poll remembers about one world, and the pure rules it applies. The first
- * weather it sees is a baseline and publishes nothing, later reads publish only when the id differs. The
+ * weather it sees is published with no previous weather, so a consumer learns the current weather after a
+ * start, later reads publish only when the id differs. The
  * game time is due once a minute per world, the first read of a world is due at once.
  *
  * <p>The poll task of a world runs on that world's thread, the timer may forget the weather from its own
@@ -25,14 +26,14 @@ public final class WorldClock {
     /**
      * Records the weather now in effect. Returns true when it differs from the last one seen, then
      * {@link #previousWeather()} holds the one before. The first call after creation or after
-     * {@link #forgetWeather()} only sets the baseline and returns false.
+     * {@link #forgetWeather()} returns true too, with no previous weather, unless no weather is in effect.
      */
     public synchronized boolean weather(String id) {
         if (!weatherSeen) {
             weatherSeen = true;
             weather = id;
             previousWeather = null;
-            return false;
+            return id != null;
         }
         if (Objects.equals(weather, id)) {
             return false;
@@ -52,7 +53,7 @@ public final class WorldClock {
         return weather;
     }
 
-    /** Drops the baseline, the next read sets a new one instead of publishing a change. */
+    /** Drops what was seen, the next read is published again as a first reading. */
     public synchronized void forgetWeather() {
         weatherSeen = false;
         weather = null;

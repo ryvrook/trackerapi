@@ -12,10 +12,19 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 class WorldClockTest {
 
     @Test
-    void firstWeatherIsABaseline() {
+    void firstWeatherIsPublishedWithNoPrevious() {
         WorldClock clock = new WorldClock();
-        assertFalse(clock.weather("Zone1_Sunny"));
+        assertTrue(clock.weather("Zone1_Sunny"), "a consumer learns the weather in effect at start");
         assertEquals("Zone1_Sunny", clock.currentWeather());
+        assertNull(clock.previousWeather());
+        assertFalse(clock.weather("Zone1_Sunny"), "only once");
+    }
+
+    @Test
+    void firstReadingWithNoWeatherPublishesNothing() {
+        WorldClock clock = new WorldClock();
+        assertFalse(clock.weather(null));
+        assertTrue(clock.weather("Zone1_Rain"));
         assertNull(clock.previousWeather());
     }
 
@@ -50,13 +59,14 @@ class WorldClockTest {
     }
 
     @Test
-    void forgettingStartsANewBaseline() {
+    void forgettingPublishesTheNextReadingAgain() {
         WorldClock clock = new WorldClock();
         clock.weather("Zone1_Sunny");
         clock.forgetWeather();
-        assertFalse(clock.weather("Zone1_Rain"));
-        assertNull(clock.previousWeather());
+        assertTrue(clock.weather("Zone1_Rain"));
+        assertNull(clock.previousWeather(), "a fresh first reading names no previous weather");
         assertTrue(clock.weather("Zone1_Sunny"));
+        assertEquals("Zone1_Rain", clock.previousWeather());
     }
 
     @Test

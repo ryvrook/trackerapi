@@ -63,4 +63,16 @@ class EventJsonTest {
         assertTrue(o.get("player").isJsonNull());
         assertEquals("STOPPING", o.get("phase").getAsString());
     }
+
+    @Test
+    void worldEventEndCarriesTheEventUuid() {
+        dev.ryvrook.trackerapi.api.event.WorldEventEnded e = new dev.ryvrook.trackerapi.api.event.WorldEventEnded(
+                new Header(3L, 4L, "default", null), "Blood_Moon", "COMPLETED", List.of(A), B);
+        JsonObject o = EventJson.toJson(e);
+        assertEquals(B.toString(), o.get("eventUuid").getAsString());
+        dev.ryvrook.trackerapi.api.event.WorldEventEnded old = new dev.ryvrook.trackerapi.api.event.WorldEventEnded(
+                new Header(3L, 5L, "default", null), "Blood_Moon", "COMPLETED", List.of(A));
+        assertEquals(null, old.eventUuid(), "the old constructor still builds the record");
+        assertFalse(EventJson.toJson(old).has("eventUuid"));
+    }
 }

@@ -135,4 +135,68 @@ class PlayerCountersTest {
         assertEquals(Map.of("kills", 3L), pc.snapshot());
         assertEquals("", pc.name());
     }
+
+    @Test
+    void sessionStartTravelsInTheFile() {
+        PlayerCounters pc = new PlayerCounters(U, "Alder", 100L);
+        assertFalse(pc.toJson().has(PlayerCounters.SESSION_START), "no field while no session runs");
+        pc.setSessionStart(5_000L);
+        JsonObject o = pc.toJson();
+        assertEquals(5_000L, o.get(PlayerCounters.SESSION_START).getAsLong());
+        assertEquals(5_000L, PlayerCounters.fromJson(U, o).sessionStart());
+        assertEquals(0, pc.get(PlayerCounters.SESSION_START), "not a counter, so boards and the API never see it");
+    }
+
+    @Test
+    void aReloadResumesTheSessionAStaleFileDoesNot() {
+        PlayerCounters disk = new PlayerCounters(U, "Alder", 1_000L);
+        disk.touch(1_000_000L);
+        disk.setSessionStart(400_000L);
+        PlayerCounters reload = new PlayerCounters(U, "Alder", 1_000_000L + 30_000L);
+        reload.mergeFromDisk(PlayerCounters.fromJson(U, disk.toJson()));
+        assertEquals(400_000L, reload.sessionStart(), "written moments before, so the session carries on");
+
+        PlayerCounters late = new PlayerCounters(U, "Alder", 1_000_000L + PlayerCounters.SESSION_RESUME_MILLIS + 1);
+        late.mergeFromDisk(PlayerCounters.fromJson(U, disk.toJson()));
+        assertEquals(0L, late.sessionStart(), "a start left by a crash long ago is not taken");
+
+        PlayerCounters fresh = new PlayerCounters(U, "Alder", 1_000_000L + 1_000L);
+        fresh.setSessionStart(1_001_000L);
+        fresh.mergeFromDisk(PlayerCounters.fromJson(U, disk.toJson()));
+        assertEquals(1_001_000L, fresh.sessionStart(), "a session begun on join keeps its own start");
+    }
+
+    @Test
+    void aDiscoveryMadeBeforeTheMergeIsCountedOnce() {
+        PlayerCounters disk = new PlayerCounters(U, "Alder", 1L);
+        disk.set("zone:Emerald_Wilds", 1);
+        disk.set("zone:Howling_Sands", 1);
+        disk.add(Keys.ZONES_DISCOVERED, 2);
+        disk.set("recipe:Recipe_Stick", 1);
+        disk.add(Keys.RECIPES_KNOWN, 1);
+        disk.add("block_broken:Rock_Stone", 4);
+
+        PlayerCounters live = new PlayerCounters(U, "Alder", 2L);
+        live.set("zone:Emerald_Wilds", 1); // seen again before the read landed
+        live.add(Keys.ZONES_DISCOVERED, 1);
+        live.set("zone:Borea", 1); // a new one
+        live.add(Keys.ZONES_DISCOVERED, 1);
+        live.add("block_broken:Rock_Stone", 1);
+        live.mergeFromDisk(disk);
+
+        assertEquals(1, live.get("zone:Emerald_Wilds"));
+        assertEquals(3, live.get(Keys.ZONES_DISCOVERED), "three zones, not four");
+        assertEquals(1, live.get(Keys.RECIPES_KNOWN));
+        assertEquals(5, live.get("block_broken:Rock_Stone"), "ordinary per id keys still sum");
+    }
+
+    @Test
+    void discoveryPrefixes() {
+        for (String p : new String[]{Keys.P_ZONE, Keys.P_MEMORY, Keys.P_INSTANCE, Keys.P_OBJECTIVE, Keys.P_RECIPE}) {
+            assertTrue(CounterRules.isDiscovery(p), p);
+            assertNotNull(CounterRules.discoveryTotal(p));
+        }
+        assertFalse(CounterRules.isDiscovery(Keys.P_KILL));
+        assertFalse(CounterRules.isDiscovery(null));
+    }
 }

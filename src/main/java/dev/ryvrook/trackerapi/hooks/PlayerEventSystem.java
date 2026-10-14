@@ -60,6 +60,11 @@ public abstract class PlayerEventSystem<E extends EcsEvent> extends EntityEventS
 
     protected abstract void handlePlayer(UUID uuid, PlayerRef playerRef, Ref<EntityStore> ref, Store<EntityStore> store, E event);
 
+    /** True when the ref points at a live entity of this store, so its components can be read here. */
+    public static boolean readable(Store<EntityStore> store, Ref<EntityStore> ref) {
+        return ref != null && ref.isValid() && ref.getStore() == store;
+    }
+
     /** Name of the world this store belongs to, or an empty string when it cannot be read. */
     public static String worldName(Store<EntityStore> store) {
         try {

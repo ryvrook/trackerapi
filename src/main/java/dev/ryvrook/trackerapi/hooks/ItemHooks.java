@@ -401,8 +401,8 @@ public final class ItemHooks implements HookSet {
         }
 
         private static Actor actorOf(Ref<EntityStore> target, Store<EntityStore> store) {
-            if (target == null || !target.isValid()) {
-                return Actor.WORLD;
+            if (!readable(store, target)) {
+                return Actor.WORLD; // gone, or an entity of another store whose components are not ours to read
             }
             PlayerRef player = store.getComponent(target, PlayerRef.getComponentType());
             if (player != null) {

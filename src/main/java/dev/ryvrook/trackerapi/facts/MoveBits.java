@@ -93,6 +93,7 @@ public final class MoveBits {
         if (fell(before, after, CROUCHING)) m |= bit(MovementEdge.Edge.CROUCH_END);
         if (rose(before, after, CLIMBING)) m |= bit(MovementEdge.Edge.CLIMB_START);
         if (fell(before, after, CLIMBING)) m |= bit(MovementEdge.Edge.CLIMB_END);
+        if (rose(before, after, FALLING_FAR)) m |= bit(MovementEdge.Edge.FALL_FAR);
         return m;
     }
 

@@ -248,4 +248,74 @@ class CounterStoreTest {
         assertTrue(store.boards().builtAt() > 0);
         assertNotNull(store.boards().keys());
     }
+
+    @Test
+    void aLeaveRacingAJoinNeverLosesTheObject() throws Exception {
+        TestSupport.Manual io = new TestSupport.Manual();
+        CounterStore store = new CounterStore(dir, TestSupport.LOGGER, io, new Perf());
+        store.join(A, "Alder", 1L);
+        io.runAll();
+        store.add(A, Keys.BLOCK_BROKEN, 1, null);
+        for (int round = 0; round < 200; round++) {
+            Thread leaver = new Thread(() -> store.leave(A));
+            leaver.start();
+            store.join(A, "Alder", 2L);
+            leaver.join();
+            if (store.live(A) == null) {
+                store.join(A, "Alder", 3L); // the leave won the race, the next join picks the object back up
+            }
+            io.runAll();
+            store.add(A, Keys.BLOCK_BROKEN, 1, null);
+        }
+        assertEquals(201, store.get(A, Keys.BLOCK_BROKEN), "every session wrote into the same object");
+    }
+
+    @Test
+    void aSessionStartIsKeptForAReloadAndClearedOnARealLeave() throws Exception {
+        CounterStore before = TestSupport.store(dir);
+        before.join(A, "Alder", 1_000L);
+        before.startSession(A, 1_000L);
+        before.live(A).touch(60_000L); // the shutdown marks when it wrote the file
+        before.leave(A);
+        assertEquals(1_000L, JsonFiles.read(before.fileOf(A)).get(PlayerCounters.SESSION_START).getAsLong());
+
+        CounterStore after = TestSupport.store(dir);
+        after.join(A, "Alder", 61_000L);
+        long[] resumed = {0};
+        after.resumeSession(A, 61_000L, start -> resumed[0] = start);
+        assertEquals(1_000L, resumed[0], "the reload carries the session on");
+
+        after.endSession(A);
+        after.leave(A);
+        assertFalse(JsonFiles.read(after.fileOf(A)).has(PlayerCounters.SESSION_START));
+
+        CounterStore next = TestSupport.store(dir);
+        next.join(A, "Alder", 70_000L);
+        next.resumeSession(A, 70_000L, start -> resumed[0] = start);
+        assertEquals(70_000L, resumed[0], "no start on file, the session starts now");
+    }
+
+    @Test
+    void aRunningSessionRaisesTheLongest() {
+        CounterStore store = TestSupport.store(dir);
+        store.join(A, "Alder", 1L);
+        store.raiseSession(A, 1_000L, 3_601_000L);
+        store.raiseSession(A, 1_000L, 61_000L);
+        store.raiseSession(A, 0L, 9_000_000L);
+        assertEquals(3600, store.get(A, Keys.SESSION_LONGEST));
+    }
+
+    @Test
+    void fileWorkAfterTheExecutorIsGoneIsSkippedNotRunInline() {
+        java.util.concurrent.Executor gone = task -> {
+            throw new java.util.concurrent.RejectedExecutionException("stopped");
+        };
+        CounterStore store = new CounterStore(dir, TestSupport.LOGGER, gone, new Perf());
+        store.stop();
+        store.join(A, "Alder", 1L);
+        store.add(A, Keys.BLOCK_BROKEN, 1, null);
+        store.leave(A);
+        store.autosave();
+        assertFalse(Files.exists(store.fileOf(A)), "nothing ran on the calling thread");
+    }
 }

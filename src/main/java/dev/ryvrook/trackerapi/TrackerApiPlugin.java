@@ -183,16 +183,30 @@ public final class TrackerApiPlugin extends JavaPlugin {
         if (boards != null) {
             boards.cancel(false);
         }
+        // Stop taking events first, so nothing is published while the queue drains, then drop the listeners.
+        services.publisher.stopAccepting();
         services.dispatcher.stop(TimeUnit.SECONDS.toMillis(DRAIN_SECONDS));
         services.publisher.close();
         if (services.journal() != null) {
             services.journal().stop();
         }
         services.counters.stop();
+        long now = System.currentTimeMillis();
         for (var online : services.players.all()) {
+            // The session keeps running across a reload, so its start stays in the file and lastSeen marks
+            // when the file was written, see PlayerCounters.mergeFromDisk.
+            services.counters.raiseSession(online.uuid, online.sessionStart, now);
+            var live = services.counters.live(online.uuid);
+            if (live != null) {
+                live.touch(now);
+            }
             services.counters.leave(online.uuid);
         }
-        services.io.execute(services.counters::saveAll);
+        try {
+            services.io.execute(services.counters::saveAll); // the final save, queued on IO before it drains
+        } catch (java.util.concurrent.RejectedExecutionException e) {
+            services.counters.saveAll();
+        }
         Threads.drain(services.timer, "TrackerAPI timer", 2, getLogger());
         Threads.drain(services.io, "TrackerAPI io", DRAIN_SECONDS, getLogger());
         int stragglers = registrar == null ? 0 : registrar.unregisterStragglers();
@@ -209,24 +223,36 @@ public final class TrackerApiPlugin extends JavaPlugin {
     /** {@code /trackerapi reload}. Re-reads the config on IO and applies what can change live. */
     public java.util.concurrent.CompletableFuture<String> reload() {
         var result = new java.util.concurrent.CompletableFuture<String>();
-        services.io.execute(() -> {
-            TrackerConfig next = TrackerConfig.reload(configFile(), getLogger());
-            if (next == null) {
-                result.complete("TrackerAPI.json could not be read, the running settings stay. See the server log.");
-                return;
-            }
-            services.setConfig(next);
-            services.publisher.setTracked(next.trackedKinds());
-            services.dispatcher.setBudgetMillis(next.listenerBudgetMillis);
-            services.counters.setPerWorld(next.perWorldCounters);
-            services.counterSink.setCountCreative(next.countCreative);
-            if (services.journal() != null) {
-                services.journal().reconfigure(next.journalKinds, next.journalRetentionDays, next.journalMaxMegabytes);
-            }
-            services.publisher.rebuild();
-            result.complete("TrackerAPI.json reloaded. " + next.trackedKinds().size() + " kinds tracked. Queue size, "
-                    + "sample interval and journal on or off apply at the next restart.");
-        });
+        if (stopping) {
+            getLogger().at(Level.FINE).log("TrackerAPI skipped a config reload while stopping");
+            result.complete("TrackerAPI is stopping, the config was not reloaded.");
+            return result;
+        }
+        try {
+            services.io.execute(() -> reloadOnIo(result));
+        } catch (java.util.concurrent.RejectedExecutionException e) {
+            getLogger().at(Level.FINE).log("TrackerAPI skipped a config reload, its IO thread is gone");
+            result.complete("TrackerAPI is stopping, the config was not reloaded.");
+        }
         return result;
+    }
+
+    private void reloadOnIo(java.util.concurrent.CompletableFuture<String> result) {
+        TrackerConfig next = TrackerConfig.reload(configFile(), getLogger());
+        if (next == null) {
+            result.complete("TrackerAPI.json could not be read, the running settings stay. See the server log.");
+            return;
+        }
+        services.setConfig(next);
+        services.publisher.setTracked(next.trackedKinds());
+        services.dispatcher.setBudgetMillis(next.listenerBudgetMillis);
+        services.counters.setPerWorld(next.perWorldCounters);
+        services.counterSink.setCountCreative(next.countCreative);
+        if (services.journal() != null) {
+            services.journal().reconfigure(next.journalKinds, next.journalRetentionDays, next.journalMaxMegabytes);
+        }
+        services.publisher.rebuild();
+        result.complete("TrackerAPI.json reloaded. " + next.trackedKinds().size() + " kinds tracked. Queue size, "
+                + "sample interval and journal on or off apply at the next restart.");
     }
 }

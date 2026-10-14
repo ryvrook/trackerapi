@@ -809,7 +809,11 @@ public final class TrackerCommand extends AbstractCommandCollection {
         }
     }
 
-    /** Publishes {@code n} synthetic events on the timer thread, so a flood never holds a world tick. */
+    /**
+     * Publishes {@code n} synthetic events on a short lived thread of its own, so a flood never holds a
+     * world tick or the timer. The events carry a synthetic player who is never online, so they reach
+     * listeners and the journal but never the sender's real counters.
+     */
     void flood(CommandContext context, String kindText, int n) {
         EventKind kind = EventKind.byId(kindText);
         if (kind == null) {
@@ -821,24 +825,29 @@ public final class TrackerCommand extends AbstractCommandCollection {
             context.sendMessage(error("TrackerAPI has no event record for " + kind.id() + "."));
             return;
         }
-        UUID me = senderUuid(context);
-        UUID uuid = me == null ? DEBUG_UUID : me;
-        String name = me == null ? "Debug" : nameOf(me);
-        String worldName = me == null ? null : s().players.worldOf(me);
-        String world = worldName == null ? "debug" : worldName;
+        UUID uuid = DEBUG_UUID;
+        String name = "Debug";
+        String world = "debug";
         Services s = s();
-        CompletableFuture<List<String>> done = CompletableFuture.supplyAsync(() -> {
-            boolean wanted = s.publisher.wants(kind);
-            long start = System.nanoTime();
-            for (int i = 0; i < n; i++) {
-                s.publisher.publish(Synthetic.build(ctor, s.header(world, uuid), uuid, name));
+        CompletableFuture<List<String>> done = new CompletableFuture<>();
+        Thread worker = new Thread(() -> {
+            try {
+                boolean wanted = s.publisher.wants(kind);
+                long start = System.nanoTime();
+                for (int i = 0; i < n; i++) {
+                    s.publisher.publish(Synthetic.build(ctor, s.header(world, uuid), uuid, name));
+                }
+                long took = System.nanoTime() - start;
+                String head = "Published " + n + " synthetic " + kind.id() + (n == 1 ? " event" : " events")
+                        + String.format(Locale.ROOT, " in %.1f ms, %d ns each.", took / 1e6, took / Math.max(1, n));
+                done.complete(wanted ? List.of(head)
+                        : List.of(head, "Nothing wants " + kind.id() + " right now, so the events went nowhere."));
+            } catch (RuntimeException | LinkageError e) {
+                done.completeExceptionally(e);
             }
-            long took = System.nanoTime() - start;
-            String head = "Published " + n + " synthetic " + kind.id() + (n == 1 ? " event" : " events")
-                    + String.format(Locale.ROOT, " in %.1f ms, %d ns each.", took / 1e6, took / Math.max(1, n));
-            return wanted ? List.of(head)
-                    : List.of(head, "Nothing wants " + kind.id() + " right now, so the events went nowhere.");
-        }, s.timer);
+        }, "TrackerAPI-flood");
+        worker.setDaemon(true);
+        worker.start();
         replyLater(context, done);
     }
 

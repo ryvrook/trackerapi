@@ -46,7 +46,15 @@ class MoveBitsTest {
         int ground = MoveBits.ON_GROUND;
         assertEquals(0, MoveBits.edges(ground | MoveBits.IDLE, ground | MoveBits.WALKING));
         assertEquals(0, MoveBits.edges(ground | MoveBits.WALKING, ground | MoveBits.RUNNING));
-        assertEquals(0, MoveBits.edges(ground, ground | MoveBits.FALLING_FAR | MoveBits.IN_FLUID));
+        assertEquals(0, MoveBits.edges(ground, ground | MoveBits.IN_FLUID));
+    }
+
+    @Test
+    void aFarFallRisesOnce() {
+        assertEquals(List.of(Edge.FALL_FAR), edges(MoveBits.FALLING, MoveBits.FALLING | MoveBits.FALLING_FAR));
+        assertEquals(List.of(), edges(MoveBits.FALLING | MoveBits.FALLING_FAR, MoveBits.FALLING | MoveBits.FALLING_FAR));
+        assertEquals(List.of(Edge.LANDED), edges(MoveBits.FALLING | MoveBits.FALLING_FAR, MoveBits.ON_GROUND),
+                "the far flag dropping on landing is no edge of its own");
     }
 
     @Test

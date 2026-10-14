@@ -5,7 +5,10 @@ import java.util.concurrent.ConcurrentHashMap;
 
 /**
  * The counter key scheme. A total is a bare name, a per id counter is {@code <prefix>:<id>} and a per
- * world copy of a total is {@code world:<world>:<total>}. Ids are the engine's asset ids as they are, such
+ * world copy of a total is {@code world:<world>:<total>}. The world part, here and in
+ * {@code world_entered:<world>}, is the world's stable key rather than its raw name, by the Chronicle Stats
+ * rule. That is an ordinary world's name lower cased, such as {@code default}, {@code portal.<type>} for a
+ * portal world, {@code instance.<template>} for an instance run, and {@code other} past 64 distinct keys. Ids are the engine's asset ids as they are, such
  * as {@code Rock_Stone}, {@code Goblin_Scrapper} or {@code Food_Apple}.
  *
  * <p>Per id keys are built once per id and kept, so the hot paths allocate nothing.
@@ -139,7 +142,7 @@ public final class Keys {
         return key;
     }
 
-    /** The per world copy of a total, such as {@code world:default:block_broken}. */
+    /** The per world copy of a total, such as {@code world:default:block_broken}, for a world key. */
     public static String world(String world, String total) {
         if (world == null) {
             return total;

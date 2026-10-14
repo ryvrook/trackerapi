@@ -36,6 +36,7 @@ import java.util.HashMap;
 import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
+import java.util.PriorityQueue;
 import java.util.Set;
 import java.util.TreeMap;
 import java.util.UUID;
@@ -602,6 +603,14 @@ public final class FileJournal implements JournalService {
         }
     }
 
+    /** Older first, by time then sequence, the order the bounded hour buffer evicts in. */
+    private static final Comparator<Entry> OLDEST_FIRST = Comparator.comparingLong(Entry::at).thenComparingLong(Entry::seq);
+
+    /** True when a line with this time and sequence sorts after the entry. */
+    private static boolean newer(long at, long seq, Entry than) {
+        return at > than.at() || (at == than.at() && seq > than.seq());
+    }
+
     /** One query, scanning one hour per IO task, newest first. */
     private final class QueryJob {
         final Query q;
@@ -648,17 +657,15 @@ public final class FileJournal implements JournalService {
                         flush(o);
                     }
                 }
-                List<Entry> hour = new ArrayList<>();
+                int room = limit - found.size();
+                // The newest {@code room} matches of the hour, oldest on top so it is the one to beat.
+                PriorityQueue<Entry> hour = new PriorityQueue<>(Math.min(room, 1024) + 1, OLDEST_FIRST);
                 for (FileInfo f : next.getValue()) {
-                    scan(f, hour);
+                    scan(f, hour, room);
                 }
-                hour.sort(Comparator.comparingLong(Entry::at).thenComparingLong(Entry::seq).reversed());
-                for (Entry e : hour) {
-                    if (found.size() >= limit) {
-                        break;
-                    }
-                    found.add(e);
-                }
+                List<Entry> newest = new ArrayList<>(hour);
+                newest.sort(OLDEST_FIRST.reversed());
+                found.addAll(newest);
             } catch (RuntimeException ex) {
                 finish(ex);
                 return;
@@ -680,15 +687,32 @@ public final class FileJournal implements JournalService {
             pump();
         }
 
-        private void scan(FileInfo f, List<Entry> out) {
+        /**
+         * Keeps at most {@code room} matches, the newest by time and sequence. Once that many are held, a line
+         * whose header is not newer than the oldest held one is skipped before Gson ever parses it.
+         */
+        private void scan(FileInfo f, PriorityQueue<Entry> out, int room) {
             try (InputStream raw = Files.newInputStream(f.path);
                  InputStream in = f.gz ? new GZIPInputStream(raw, 65_536) : raw;
                  BufferedReader r = new BufferedReader(new InputStreamReader(in, StandardCharsets.UTF_8), 65_536)) {
                 String line;
                 while ((line = r.readLine()) != null) {
-                    Entry e = match(line);
+                    Head h = head(line);
+                    if (h == null) {
+                        continue;
+                    }
+                    if (out.size() >= room) {
+                        Entry oldest = out.peek();
+                        if (oldest != null && !newer(h.at, h.seq, oldest)) {
+                            continue;
+                        }
+                    }
+                    Entry e = full(line, h);
                     if (e != null) {
                         out.add(e);
+                        if (out.size() > room) {
+                            out.poll();
+                        }
                     }
                 }
             } catch (IOException ex) {
@@ -699,7 +723,8 @@ public final class FileJournal implements JournalService {
             }
         }
 
-        Entry match(String line) {
+        /** The header of a line when it passes the kind, player, world and time filters, else null. */
+        Head head(String line) {
             if (line.isEmpty()) {
                 return null;
             }
@@ -728,6 +753,12 @@ public final class FileJournal implements JournalService {
             if (h.at < q.fromMillis() || h.at > q.toMillis()) {
                 return null;
             }
+            return h;
+        }
+
+        /** Parses a line whose header passed, applies the box and builds the entry. */
+        Entry full(String line, Head h) {
+            EventKind kind = BY_ID.get(h.kind);
             JsonObject full;
             try {
                 JsonElement e = JsonParser.parseString(line);

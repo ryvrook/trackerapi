@@ -4,6 +4,7 @@ import com.google.gson.JsonObject;
 import com.hypixel.hytale.logger.HytaleLogger;
 import dev.ryvrook.trackerapi.api.Counters;
 import dev.ryvrook.trackerapi.api.Keys;
+import dev.ryvrook.trackerapi.facts.WorldKeys;
 import dev.ryvrook.trackerapi.util.JsonFiles;
 import dev.ryvrook.trackerapi.util.Perf;
 
@@ -48,6 +49,9 @@ public final class CounterStore implements Counters {
     private final ServerCounters server;
     private final NamesIndex names;
     private final Boards boards;
+    private final WorldKeys worldKeys;
+    /** Join and leave move an object between the two maps under this, so neither sees it in neither. */
+    private final Object lifecycle = new Object();
     private volatile boolean perWorld = true;
     private volatile boolean stopped;
 
@@ -60,6 +64,12 @@ public final class CounterStore implements Counters {
         this.server = new ServerCounters(root.resolve("server").resolve("totals.json"), logger);
         this.names = new NamesIndex(root.resolve("names.json"), logger);
         this.boards = new Boards(this, logger);
+        this.worldKeys = new WorldKeys(logger);
+    }
+
+    /** The world names to counter keys rule, see {@link WorldKeys}. */
+    public WorldKeys worldKeys() {
+        return worldKeys;
     }
 
     public Path root() {
@@ -100,16 +110,19 @@ public final class CounterStore implements Counters {
 
     /** The player joined. Any thread. Returns the live object, whose file read is queued. */
     public PlayerCounters join(UUID uuid, String name, long now) {
-        PlayerCounters back = unloading.remove(uuid);
-        PlayerCounters pc = loaded.computeIfAbsent(uuid, id -> {
-            if (back != null) {
-                back.setName(name, now);
-                return back;
-            }
-            PlayerCounters fresh = new PlayerCounters(id, name, now);
-            fresh.setMerged(false);
-            return fresh;
-        });
+        PlayerCounters pc;
+        synchronized (lifecycle) {
+            PlayerCounters back = unloading.remove(uuid);
+            pc = loaded.computeIfAbsent(uuid, id -> {
+                if (back != null) {
+                    back.setName(name, now);
+                    return back;
+                }
+                PlayerCounters fresh = new PlayerCounters(id, name, now);
+                fresh.setMerged(false);
+                return fresh;
+            });
+        }
         pc.setName(name, now);
         if (name != null && !name.isEmpty()) {
             names.seen(uuid, name, now);
@@ -148,13 +161,64 @@ public final class CounterStore implements Counters {
         }
     }
 
-    /** The player left. Any thread. Saves on IO and forgets the object once saved. */
-    public void leave(UUID uuid) {
-        PlayerCounters pc = loaded.remove(uuid);
+    /**
+     * A session begins now. The start goes into the player's file, so a plugin reload carries the session
+     * on rather than starting a new one.
+     */
+    public void startSession(UUID uuid, long now) {
+        PlayerCounters pc = live(uuid);
+        if (pc != null) {
+            pc.setSessionStart(now);
+        }
+    }
+
+    /**
+     * A session that was running before a plugin reload. Once the file read landed, the start kept in the
+     * file is handed to {@code resumed}, or {@code now} when the file has none. On IO.
+     */
+    public void resumeSession(UUID uuid, long now, java.util.function.LongConsumer resumed) {
+        PlayerCounters pc = live(uuid);
         if (pc == null) {
             return;
         }
-        unloading.put(uuid, pc);
+        runIo(() -> {
+            long start = pc.sessionStart();
+            if (start <= 0 || start > now) {
+                start = now;
+                pc.setSessionStart(now);
+            }
+            resumed.accept(start);
+        });
+    }
+
+    /** The session ended with a real leave, so the file no longer carries its start. */
+    public void endSession(UUID uuid) {
+        PlayerCounters pc = live(uuid);
+        if (pc != null) {
+            pc.setSessionStart(0L);
+        }
+    }
+
+    /** Raises the longest session of an online player to the session running since {@code sessionStart}. */
+    public void raiseSession(UUID uuid, long sessionStart, long now) {
+        long seconds = sessionStart <= 0 ? 0 : (now - sessionStart) / 1000;
+        if (seconds > 0) {
+            raise(uuid, Keys.SESSION_LONGEST, seconds);
+        }
+    }
+
+    /** The player left. Any thread. Saves on IO and forgets the object once saved. */
+    public void leave(UUID uuid) {
+        PlayerCounters pc;
+        synchronized (lifecycle) {
+            pc = loaded.get(uuid);
+            if (pc == null) {
+                return;
+            }
+            // Into unloading first, so a join racing this leave picks up the same object instead of a fresh one.
+            unloading.put(uuid, pc);
+            loaded.remove(uuid, pc);
+        }
         runIo(() -> {
             try {
                 save(pc);
@@ -204,13 +268,15 @@ public final class CounterStore implements Counters {
         stopped = true;
     }
 
+    /**
+     * Queues file work on IO. Once the executor is gone the task is dropped with a fine log line, the
+     * shutdown queues its own final save before it drains the executor.
+     */
     private void runIo(Runnable task) {
         try {
             io.execute(task);
         } catch (RejectedExecutionException e) {
-            if (stopped) {
-                task.run(); // shutdown, the executor is gone, finish inline so nothing is lost
-            }
+            logger.at(Level.FINE).log("TrackerAPI skipped counter file work, %s", stopped ? "it is stopping" : "the IO thread is gone");
         }
     }
 
@@ -229,7 +295,7 @@ public final class CounterStore implements Counters {
         }
         pc.add(key, amount);
         if (perWorld && world != null && Keys.PER_WORLD_TOTALS.contains(key)) {
-            pc.add(Keys.world(world, key), amount);
+            pc.add(Keys.world(worldKeys.keyOf(world), key), amount);
         }
         server.add(key, amount);
     }
@@ -243,7 +309,7 @@ public final class CounterStore implements Counters {
         if (total != null) {
             pc.add(total, amount);
             if (perWorld && world != null && Keys.PER_WORLD_TOTALS.contains(total)) {
-                pc.add(Keys.world(world, total), amount);
+                pc.add(Keys.world(worldKeys.keyOf(world), total), amount);
             }
             server.add(total, amount);
         }

@@ -117,14 +117,15 @@ public final class PlayerHooks implements HookSet {
         this.s = services;
         this.sampler = new Sampler(services, services.logger);
         services.forgetting.onWorld(this::forgetWorld);
+        services.forgetting.onSweep(this::sweepWorlds);
 
         registrar.listener("player connect", events -> events.registerAsyncGlobal(PlayerConnectEvent.class,
                 future -> future.thenApply(this::onConnect)));
         registrar.listener("player ready", events -> events.registerGlobal(PlayerReadyEvent.class, this::onReady));
         registrar.listener("player disconnect", events -> events.registerGlobal(PlayerDisconnectEvent.class, this::onDisconnect));
         registrar.listener("player world change", events -> events.registerGlobal(AddPlayerToWorldEvent.class, this::onAddToWorld));
-        // Late, so moderation plugins have cancelled before the cancelled flag is read.
-        registrar.listener("player chat", events -> events.registerAsyncGlobal(EventPriority.LATE, PlayerChatEvent.class,
+        // Last, so a moderation plugin that cancels as late as LAST is honoured before the flag is read.
+        registrar.listener("player chat", events -> events.registerAsyncGlobal(EventPriority.LAST, PlayerChatEvent.class,
                 future -> future.thenApply(this::onChat)));
 
         registrar.listener("permissions added", events -> events.registerGlobal(
@@ -245,6 +246,7 @@ public final class PlayerHooks implements HookSet {
                 o.sessionStart = now;
                 o.readyOnce = true;
                 s.counters.join(uuid, name, now);
+                s.counters.startSession(uuid, now);
             }
             readScope(o, ref, store);
             sampler.resetPosition(uuid);
@@ -259,6 +261,7 @@ public final class PlayerHooks implements HookSet {
                 s.publisher.publish(new PlayerJoined(s.header(world, uuid), name, firstEver));
             }
             if (world != null && s.publisher.wants(EventKind.PLAYER_WORLD_CHANGED)) {
+                s.counters.worldKeys().learn(PlayerEventSystem.worldOf(store));
                 // The first world of a session. Its portal is not an entry through a portal, as Feats counts it.
                 s.publisher.publish(new PlayerWorldChanged(s.header(world, uuid), null, null, portalTypeOf(store) != null));
             }
@@ -302,14 +305,18 @@ public final class PlayerHooks implements HookSet {
             PlayerRegistry.Online o = s.players.get(uuid);
             lastWorld.remove(uuid);
             if (o == null) {
+                s.forgetting.leave(uuid);
                 return; // never got ready, nothing was joined
             }
             if (s.publisher.wants(EventKind.PLAYER_LEFT)) {
                 s.publisher.publish(new PlayerLeft(s.header(o.world, uuid), o.name, Math.max(0, now - o.sessionStart)));
             }
+            s.counters.raiseSession(uuid, o.sessionStart, now);
             s.players.leave(uuid);
+            s.counters.endSession(uuid);
             s.counters.leave(uuid);
             sampler.left(uuid, now);
+            s.forgetting.leave(uuid);
         } catch (RuntimeException | LinkageError e) {
             Guard.failed(e);
         } finally {
@@ -319,8 +326,9 @@ public final class PlayerHooks implements HookSet {
 
     /**
      * After a {@code /plugin reload} nobody fires PlayerReady for the players already online, so they are
-     * joined here, without a PLAYER_JOINED, since their session did not begin now. On a normal boot nobody
-     * is online yet and this does nothing.
+     * joined here, without a PLAYER_JOINED, since their session did not begin now. The session start the
+     * old instance left in the player's counters file is read back once the file merged, so the reload does
+     * not split the session. On a normal boot nobody is online yet and this does nothing.
      */
     private void joinOnlinePlayers() {
         try {
@@ -335,6 +343,7 @@ public final class PlayerHooks implements HookSet {
                     PlayerRegistry.Online o = s.players.join(uuid, pr.getUsername(), now);
                     o.readyOnce = true;
                     s.counters.join(uuid, pr.getUsername(), now);
+                    s.counters.resumeSession(uuid, now, start -> o.sessionStart = start);
                     World world = pr.getWorldUuid() == null ? null : universe.getWorld(pr.getWorldUuid());
                     if (world == null) {
                         continue;
@@ -398,6 +407,7 @@ public final class PlayerHooks implements HookSet {
             String fromWorld = from;
             WorldTasks.run(world, () -> {
                 try {
+                    s.counters.worldKeys().learn(world);
                     String portal = portalTypeOf(world.getEntityStore().getStore());
                     boolean instance = portal != null || isPortalWorld(world);
                     s.publisher.publish(new PlayerWorldChanged(s.header(to, uuid), fromWorld, portal, instance));
@@ -444,6 +454,13 @@ public final class PlayerHooks implements HookSet {
             }
         } catch (RuntimeException | LinkageError ignored) {
             // the gate entry goes stale on its own
+        }
+    }
+
+    /** Once a minute on the timer thread, drops edge maps of worlds the universe no longer holds. */
+    private void sweepWorlds() {
+        if (edgeSystem != null) {
+            edgeSystem.sweep();
         }
     }
 
@@ -603,12 +620,28 @@ public final class PlayerHooks implements HookSet {
             this.sampler = sampler;
         }
 
+        /** The sampler restarts its step on every respawn, a lifecycle duty that does not wait for a subscriber. */
+        @Override
+        public void handle(int index, ArchetypeChunk<EntityStore> chunk, Store<EntityStore> store,
+                           CommandBuffer<EntityStore> commandBuffer, RespawnEvent event) {
+            if (!event.isCancelled()) {
+                try {
+                    PlayerRef pr = store.getComponent(chunk.getReferenceTo(index), PlayerRef.getComponentType());
+                    if (pr != null) {
+                        sampler.resetPosition(pr.getUuid());
+                    }
+                } catch (RuntimeException | LinkageError e) {
+                    Guard.failed(e);
+                }
+            }
+            super.handle(index, chunk, store, commandBuffer, event);
+        }
+
         @Override
         protected void handlePlayer(UUID uuid, PlayerRef playerRef, Ref<EntityStore> ref, Store<EntityStore> store, RespawnEvent event) {
             if (event.isCancelled()) {
                 return;
             }
-            sampler.resetPosition(uuid);
             World world = worldOf(store);
             String name = worldName(store);
             WorldTasks.post(world, () -> {

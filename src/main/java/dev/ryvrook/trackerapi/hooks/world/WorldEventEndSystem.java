@@ -20,7 +20,8 @@ import java.util.UUID;
 /**
  * WORLD_EVENT_ENDED from the world wide {@code EventEndEcsEvent} (the Chronicle {@code WorldEventEndSystem}
  * read). The event id is the world event's asset id, the outcome the engine's reason name, and the
- * participants are every player in the world when it ended, as Chronicle counts them. World thread.
+ * participants are every player in the world when it ended, as Chronicle counts them. The event uuid is
+ * the world event's own, the same one WORLD_EVENT_STARTED reports when the event has one. World thread.
  */
 public final class WorldEventEndSystem extends WorldEventSystem<EntityStore, EventEndEcsEvent> {
     private final Services s;
@@ -51,8 +52,12 @@ public final class WorldEventEndSystem extends WorldEventSystem<EntityStore, Eve
                     }
                 }
             }
+            UUID eventUuid = we.uuid;
+            if (eventUuid != null && eventUuid.equals(WorldEvent.EMPTY_ID)) {
+                eventUuid = null; // no entity ref comes with the end, so there is no entity uuid to fall back on
+            }
             s.publisher.publish(new WorldEventEnded(s.header(WorldNames.name(world), null), we.asset,
-                    event.getReason().name(), List.copyOf(players)));
+                    event.getReason().name(), List.copyOf(players), eventUuid));
         } catch (RuntimeException | LinkageError e) {
             Guard.failed(e);
         } finally {

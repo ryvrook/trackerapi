@@ -45,7 +45,7 @@ public final class EffectSystem extends DelayedEntitySystem<EntityStore> {
         return Player.getComponentType();
     }
 
-    /** Drops a player's last sample, on leave. */
+    /** Drops a player's last sample, the moment they disconnect. */
     public void forget(UUID player) {
         if (player != null) {
             last.remove(player);

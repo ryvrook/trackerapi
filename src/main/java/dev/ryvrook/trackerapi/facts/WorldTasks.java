@@ -1,9 +1,11 @@
 package dev.ryvrook.trackerapi.facts;
 
+import com.hypixel.hytale.server.core.universe.Universe;
 import com.hypixel.hytale.server.core.universe.world.World;
 
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.TimeUnit;
+import java.util.function.Predicate;
 
 /**
  * Posts work to a world's own thread. {@code World.execute} throws once a world stops taking tasks, which
@@ -43,6 +45,31 @@ public final class WorldTasks {
         return post(world, task);
     }
 
+    /** True while the world takes work, false for a world that stopped or is stopping. Never throws. */
+    public static boolean isAlive(World world) {
+        try {
+            return world != null && world.isAlive();
+        } catch (RuntimeException | LinkageError e) {
+            return true; // unknown, let the post decide
+        }
+    }
+
+    /**
+     * True when the universe no longer holds this world under its name, so it was removed or replaced.
+     * The universe keys its worlds by the lower case name, which {@code getWorld} applies. Never throws.
+     */
+    public static boolean isGone(World world) {
+        if (world == null) {
+            return true;
+        }
+        try {
+            Universe universe = Universe.get();
+            return universe != null && universe.getWorld(world.getName()) != world;
+        } catch (RuntimeException | LinkageError e) {
+            return false;
+        }
+    }
+
     /**
      * At most one task of a poll in flight per world. A world thread that falls behind would otherwise
      * collect one queued sample per round and run them back to back once it catches up, which is exactly
@@ -62,6 +89,9 @@ public final class WorldTasks {
         public boolean post(World world, Runnable task) {
             if (world == null || task == null) {
                 return false;
+            }
+            if (!isAlive(world)) {
+                return false; // a world being removed gets no entry that would hold it
             }
             long now = System.nanoTime();
             Long since = inFlight.get(world);
@@ -86,6 +116,29 @@ public final class WorldTasks {
             if (world != null) {
                 inFlight.remove(world);
             }
+        }
+
+        /** Drops the entries of every world the test says is gone. Returns how many went. Any thread. */
+        public int sweep(Predicate<World> gone) {
+            int[] dropped = {0};
+            inFlight.keySet().removeIf(w -> {
+                if (gone.test(w)) {
+                    dropped[0]++;
+                    return true;
+                }
+                return false;
+            });
+            return dropped[0];
+        }
+
+        /** Drops the entries of worlds the universe no longer holds. */
+        public int sweep() {
+            return sweep(WorldTasks::isGone);
+        }
+
+        /** Entries held, for tests and status. */
+        public int size() {
+            return inFlight.size();
         }
     }
 }

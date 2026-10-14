@@ -232,6 +232,10 @@ public final class Publisher {
 
     /** Sinks changed what they want, for example the journal kinds after a reload. */
     public void rebuild() {
+        if (closed) {
+            wants = new byte[EventKind.COUNT];
+            return;
+        }
         byte[] next = new byte[EventKind.COUNT];
         SubscriptionImpl[][] sync = new SubscriptionImpl[EventKind.COUNT][];
         boolean[] on = tracked;
@@ -304,9 +308,19 @@ public final class Publisher {
         }
     }
 
-    /** Stops publishing and drops every subscription. The dispatcher drains what is queued. */
-    public void close() {
+    /**
+     * The first step of a stop. Nothing is published from now on, so sync listeners and sinks hear nothing
+     * more, while the async subscriptions stay open for the dispatcher to drain what is queued. Then
+     * {@link #close}.
+     */
+    public void stopAccepting() {
         closed = true;
+        wants = new byte[EventKind.COUNT];
+    }
+
+    /** Stops publishing and drops every subscription and sink. Call it after the dispatcher drained. */
+    public void close() {
+        stopAccepting();
         for (SubscriptionImpl s : subscriptions) {
             s.deactivate();
         }

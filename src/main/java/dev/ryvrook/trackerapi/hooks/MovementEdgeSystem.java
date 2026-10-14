@@ -17,6 +17,7 @@ import dev.ryvrook.trackerapi.Services;
 import dev.ryvrook.trackerapi.api.EventKind;
 import dev.ryvrook.trackerapi.api.event.MovementEdge;
 import dev.ryvrook.trackerapi.facts.MoveBits;
+import dev.ryvrook.trackerapi.facts.WorldTasks;
 import dev.ryvrook.trackerapi.util.Guard;
 
 import java.util.IdentityHashMap;
@@ -25,8 +26,8 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.logging.Level;
 
 /**
- * MOVEMENT_EDGE, the only per tick work of the players hook set. Jumps, falls, landings, glides, swims,
- * sprints, crouches and climbs come from edges of the movement states. The steady state of a player who
+ * MOVEMENT_EDGE, the only per tick work of the players hook set. Jumps, falls, far falls, landings, glides,
+ * swims, sprints, crouches and climbs come from edges of the movement states. The steady state of a player who
  * does not change state is one map lookup, one component read and an int compare, with no allocation.
  *
  * <p>Threads. One edge map per world, created on that world's thread and read and written only by that
@@ -65,6 +66,9 @@ final class MovementEdgeSystem extends EntityTickingSystem<EntityStore> {
             }
             WorldEdges we = edges.get(world);
             if (we == null || we.world != world) {
+                if (!WorldTasks.isAlive(world)) {
+                    return; // a world being removed gets no entry that would outlive its removal
+                }
                 // A world recreated under the same name gets a fresh map here.
                 we = new WorldEdges(world);
                 edges.put(world, we);
@@ -162,6 +166,11 @@ final class MovementEdgeSystem extends EntityTickingSystem<EntityStore> {
         if (name != null) {
             edges.keySet().removeIf(w -> name.equals(w.getName()));
         }
+    }
+
+    /** Timer thread, once a minute. Drops the maps of worlds the universe no longer holds. */
+    void sweep() {
+        edges.keySet().removeIf(WorldTasks::isGone);
     }
 
     void clear() {

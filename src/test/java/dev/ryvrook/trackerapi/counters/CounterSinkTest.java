@@ -114,22 +114,70 @@ class CounterSinkTest {
     }
 
     @Test
-    void blockBrokenOnOwnPlacementCountsPerIdButNotTotal() {
+    void blockBrokenOnOwnPlacementCountsNothing() {
         accept(new BlockBroken(h(P), 0, 0, 0, "Rock_Stone", null, false, false));
         accept(new BlockBroken(h(P), 0, 0, 0, "Rock_Stone", null, true, false));
         assertEquals(1, c(Keys.BLOCK_BROKEN));
-        assertEquals(2, c("block_broken:Rock_Stone"));
+        assertEquals(1, c("block_broken:Rock_Stone"), "the Feats rule, not even the per id key");
         assertEquals(1, c("world:default:block_broken"), "per world copy follows the total");
         assertEquals(1, store.server(Keys.BLOCK_BROKEN));
-        assertEquals(2, store.server("block_broken:Rock_Stone"));
+        assertEquals(1, store.server("block_broken:Rock_Stone"));
     }
 
     @Test
-    void repeatPlacementCountsPerIdButNotTotal() {
+    void repeatPlacementCountsNothing() {
         accept(new BlockPlaced(h(P), 0, 0, 0, "Wood_Oak_Planks", "Wood_Oak_Planks", false, false));
         accept(new BlockPlaced(h(P), 0, 0, 0, "Wood_Oak_Planks", "Wood_Oak_Planks", true, false));
         assertEquals(1, c(Keys.BLOCK_PLACED));
-        assertEquals(2, c("block_placed:Wood_Oak_Planks"));
+        assertEquals(1, c("block_placed:Wood_Oak_Planks"));
+    }
+
+    @Test
+    void instanceRunsShareOnePerWorldKey() {
+        String run1 = "instance-Dungeon_Goblin-0f1e2d3c-4b5a-6978-8796-a5b4c3d2e1f0";
+        String run2 = "instance-Dungeon_Goblin-11111111-2222-3333-4444-555555555555";
+        accept(new BlockBroken(TestSupport.header(run1, P), 0, 0, 0, "Rock_Stone", null, false, false));
+        accept(new BlockBroken(TestSupport.header(run2, P), 0, 0, 0, "Rock_Stone", null, false, false));
+        accept(new PlayerWorldChanged(TestSupport.header(run1, P), "default", null, true));
+        accept(new PlayerWorldChanged(TestSupport.header(run2, P), "default", null, true));
+        assertEquals(2, c("world:instance.dungeon_goblin:block_broken"));
+        assertEquals(2, c("world_entered:instance.dungeon_goblin"));
+        assertTrue(store.all(P).keySet().stream().noneMatch(k -> k.contains("0f1e2d3c")), "no run uuid reaches a key");
+
+        store.worldKeys().learn("portal-fragment-7", "Portal_Void", "");
+        accept(new BlockBroken(TestSupport.header("portal-fragment-7", P), 0, 0, 0, "Rock_Stone", null, false, false));
+        assertEquals(1, c("world:portal.portal_void:block_broken"), "a learned portal world keys by its type");
+    }
+
+    @Test
+    void chatCountsOncePerFiveSecondsAndNeverWhenCancelled() {
+        long t = 1_000_000L;
+        accept(new PlayerChatted(new Header(t, 1, W, P), "Alder", 5, true, null));
+        assertEquals(0, c(Keys.CHAT), "a cancelled message never counts");
+        accept(new PlayerChatted(new Header(t + 100, 2, W, P), "Alder", 5, false, null));
+        accept(new PlayerChatted(new Header(t + 4_000, 3, W, P), "Alder", 5, false, null));
+        assertEquals(1, c(Keys.CHAT), "the window opened at the counted message");
+        accept(new PlayerChatted(new Header(t + 5_100, 4, W, P), "Alder", 5, false, null));
+        assertEquals(2, c(Keys.CHAT));
+        accept(new PlayerChatted(new Header(t + 5_200, 5, W, Q), "Birch", 5, false, null));
+        assertEquals(1, c(Q, Keys.CHAT), "the window is per player");
+    }
+
+    @Test
+    void chatTimerAndStreakAreForgottenAfterTheGrace() {
+        dev.ryvrook.trackerapi.facts.Forgetting forgetting = new dev.ryvrook.trackerapi.facts.Forgetting();
+        sink.registerWith(forgetting);
+        long t = 1_000_000L;
+        accept(new PlayerChatted(new Header(t, 1, W, P), "Alder", 5, false, null));
+        accept(died(goblin(), player(P), false, false, List.of(), Set.of()));
+        forgetting.leave(P);
+        assertEquals(1, sink.streaks().current(P), "a disconnect alone keeps both");
+        accept(new PlayerChatted(new Header(t + 1_000, 2, W, P), "Alder", 5, false, null));
+        assertEquals(1, c(Keys.CHAT));
+        forgetting.forget(P);
+        assertEquals(0, sink.streaks().current(P));
+        accept(new PlayerChatted(new Header(t + 2_000, 3, W, P), "Alder", 5, false, null));
+        assertEquals(2, c(Keys.CHAT), "a forgotten timer counts the next message");
     }
 
     @Test
@@ -256,7 +304,7 @@ class CounterSinkTest {
     }
 
     @Test
-    void killStreakBestSurvivesADeathAndALeave() {
+    void killStreakBestSurvivesADeathAndARelog() {
         for (int i = 0; i < 3; i++) {
             accept(died(goblin(), player(P), false, false, List.of(), Set.of()));
         }
@@ -268,7 +316,8 @@ class CounterSinkTest {
         accept(died(goblin(), player(P), false, false, List.of(), Set.of()));
         assertEquals(3, c(Keys.KILL_STREAK_BEST), "a shorter run does not lower the best");
         accept(new PlayerLeft(h(P), "Alder", 0));
-        assertEquals(0, sink.streaks().current(P), "leaving ends the streak");
+        assertEquals(2, sink.streaks().current(P), "a relog within the hour of grace keeps the streak, as Feats does");
+        sink.streaks().forget(P);
         for (int i = 0; i < 4; i++) {
             accept(died(goblin(), player(P), false, false, List.of(), Set.of()));
         }
@@ -309,13 +358,13 @@ class CounterSinkTest {
         accept(new PlayerWorldChanged(TestSupport.header("Instance_1", P), "default", "Portal_Device", true));
         accept(new PlayerRespawned(h(P), 0, 0, 0));
         accept(new PlayerTeleported(h(P), 0, 0, 0, 1, 1, 1));
-        accept(new PlayerChatted(h(P), "Alder", 5, false, null));
         accept(new PlayerChatted(h(P), "Alder", 5, true, null));
+        accept(new PlayerChatted(h(P), "Alder", 5, false, null));
         accept(new PlayerCommand(h(P), "Alder", "spawn"));
 
         assertEquals(1, c(Keys.JOINS));
         assertEquals(3600, c(Keys.SESSION_LONGEST));
-        assertEquals(2, c("world_entered:Instance_1"));
+        assertEquals(2, c("world_entered:instance_1"), "world keys are lower cased");
         assertEquals(1, c(Keys.WORLD_CHANGES), "the first world of a session is not a change");
         assertEquals(1, c(Keys.PORTALS_ENTERED));
         assertEquals(1, c("portal:Portal_Device"));

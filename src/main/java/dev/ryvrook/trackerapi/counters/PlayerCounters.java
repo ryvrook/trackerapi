@@ -3,6 +3,7 @@ package dev.ryvrook.trackerapi.counters;
 import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
 import com.google.gson.JsonPrimitive;
+import dev.ryvrook.trackerapi.api.Keys;
 
 import java.util.HashMap;
 import java.util.Map;
@@ -14,11 +15,16 @@ import java.util.UUID;
  */
 public final class PlayerCounters {
     public static final int VERSION = 1;
+    /** The file field that carries the start of a running session across a plugin reload. */
+    public static final String SESSION_START = "session_start";
+    /** A session start read from disk is taken only when the file was written this recently before the join. */
+    public static final long SESSION_RESUME_MILLIS = 10 * 60_000L;
 
     private final UUID uuid;
     private String name;
     private long firstSeen;
     private long lastSeen;
+    private long sessionStart;
     private final Map<String, long[]> counters = new HashMap<>(256);
     private JsonObject imported;
     private boolean dirty;
@@ -54,6 +60,18 @@ public final class PlayerCounters {
 
     public synchronized long lastSeen() {
         return lastSeen;
+    }
+
+    /** When the running session began, zero when none is running. */
+    public synchronized long sessionStart() {
+        return sessionStart;
+    }
+
+    public synchronized void setSessionStart(long start) {
+        if (start != sessionStart) {
+            sessionStart = Math.max(0L, start);
+            dirty = true;
+        }
     }
 
     public synchronized void touch(long now) {
@@ -149,11 +167,20 @@ public final class PlayerCounters {
     /**
      * Merges what was read from disk into this object, which may already hold increments made since the
      * player joined. Disk values add to in memory values, so nothing counted during the read is lost.
+     * Bests take the larger, the lowest the smaller, and a discovery such as {@code zone:<id>} that was made
+     * again before the read landed stays at one and is taken off its total once, so it is not counted twice.
+     * A session start on disk is taken only when this object has none and the file was written within
+     * {@link #SESSION_RESUME_MILLIS} before the join, which is the reload case.
      */
     public synchronized void mergeFromDisk(PlayerCounters disk) {
         if (disk.firstSeen > 0 && disk.firstSeen < firstSeen) {
             firstSeen = disk.firstSeen;
         }
+        if (sessionStart <= 0 && disk.sessionStart > 0 && disk.lastSeen > 0
+                && lastSeen - disk.lastSeen <= SESSION_RESUME_MILLIS) {
+            sessionStart = disk.sessionStart;
+        }
+        Map<String, Integer> rediscovered = null;
         if (name.isEmpty() && !disk.name.isEmpty()) {
             name = disk.name;
         }
@@ -164,12 +191,29 @@ public final class PlayerCounters {
             } else {
                 String key = e.getKey();
                 // Bests and firsts are not sums.
+                String prefix = Keys.prefixOf(key);
                 if (CounterRules.isMax(key)) {
+                    slot[0] = Math.max(slot[0], e.getValue()[0]);
+                } else if (!prefix.equals(key) && CounterRules.isDiscovery(prefix)) {
+                    if (slot[0] > 0 && e.getValue()[0] > 0) {
+                        if (rediscovered == null) {
+                            rediscovered = new HashMap<>();
+                        }
+                        rediscovered.merge(CounterRules.discoveryTotal(prefix), 1, Integer::sum);
+                    }
                     slot[0] = Math.max(slot[0], e.getValue()[0]);
                 } else if (CounterRules.isMin(key)) {
                     slot[0] = Math.min(slot[0], e.getValue()[0]);
                 } else {
                     slot[0] += e.getValue()[0];
+                }
+            }
+        }
+        if (rediscovered != null) {
+            for (Map.Entry<String, Integer> r : rediscovered.entrySet()) {
+                long[] total = counters.get(r.getKey());
+                if (total != null) {
+                    total[0] = Math.max(0L, total[0] - r.getValue());
                 }
             }
         }
@@ -204,6 +248,9 @@ public final class PlayerCounters {
         o.addProperty("name", name);
         o.addProperty("firstSeen", firstSeen);
         o.addProperty("lastSeen", lastSeen);
+        if (sessionStart > 0) {
+            o.addProperty(SESSION_START, sessionStart);
+        }
         JsonObject c = new JsonObject();
         counters.entrySet().stream().sorted(Map.Entry.comparingByKey())
                 .forEach(e -> c.addProperty(e.getKey(), e.getValue()[0]));
@@ -218,6 +265,7 @@ public final class PlayerCounters {
         PlayerCounters p = new PlayerCounters(uuid, str(o, "name"), 0L);
         p.firstSeen = num(o, "firstSeen");
         p.lastSeen = num(o, "lastSeen");
+        p.sessionStart = num(o, SESSION_START);
         JsonElement c = o.get("counters");
         if (c != null && c.isJsonObject()) {
             for (Map.Entry<String, JsonElement> e : c.getAsJsonObject().entrySet()) {

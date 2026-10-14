@@ -48,6 +48,8 @@ public final class Services {
         this.players = players;
         this.io = io;
         this.timer = timer;
+        counterSink.registerWith(forgetting);
+        forgetting.onWorld(counters.worldKeys()::forget);
     }
 
     /**
