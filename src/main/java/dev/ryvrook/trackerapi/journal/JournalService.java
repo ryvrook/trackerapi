@@ -16,6 +16,11 @@ public interface JournalService extends Journal, Publisher.Sink {
     /** Lines waiting for the IO thread. */
     int pending();
 
+    /** Events dropped since start because the queue to the IO thread was full. */
+    default long dropped() {
+        return 0;
+    }
+
     /** Plugin start. Opens the current hour and schedules the flush and the prune. */
     void start();
 
