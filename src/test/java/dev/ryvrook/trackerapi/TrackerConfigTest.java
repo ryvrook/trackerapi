@@ -78,7 +78,7 @@ class TrackerConfigTest {
         assertEquals(60, c.autosaveSeconds);
         assertEquals(60, c.boardSeconds);
         assertEquals(65_536, c.queueCapacity);
-        assertEquals(5, c.listenerBudgetMillis);
+        assertEquals(50, c.listenerBudgetMillis);
         assertEquals(1, c.sampleSeconds);
         assertEquals(0, c.vitalsSeconds);
         assertFalse(c.countCreative);

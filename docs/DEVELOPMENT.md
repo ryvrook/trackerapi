@@ -75,7 +75,7 @@ Counter keys. A total such as `block_broken`, a per id count such as `block_brok
 
 ## Consumers
 
-Feats 1.5.0, Chronicle Stats 1.2.0 and Atlas 1.6.0 list `Ryvrook:TrackerAPI` under `OptionalDependencies` with `>=1.0.0`, decide at setup from the plugin manager whether to register their own systems, bind from start through `TrackerApi.onEnable`, and keep every TrackerAPI import in one bridge class. The engine's `PluginClassLoader` resolves classes of listed dependencies through `PluginManager$PluginBridgeClassLoader`, which walks `Dependencies` then `OptionalDependencies` (verified by javap on 0.7.1). A reload of TrackerAPI leaves consumers linked to the old classes, so they poll the plugin identity every 5 seconds and ask for their own reload.
+Feats 1.5.0, Chronicle Stats 1.2.0 and Atlas 1.6.0 list `Ryvrook:TrackerAPI` under `OptionalDependencies` with `>=1.0.0`, decide at setup from the plugin manager whether to register their own systems, bind from start through `TrackerApi.onEnable`, and keep every TrackerAPI import in one bridge class. The engine's `PluginClassLoader` resolves classes of listed dependencies through `PluginManager$PluginBridgeClassLoader`, which walks `Dependencies` then `OptionalDependencies` (verified by javap on 0.7.1). A reload of TrackerAPI leaves consumers linked to the old classes. `Dependents` finds every enabled plugin whose manifest names TrackerAPI and reloads it through `PluginManager.reload` two seconds after start, and the consumers still poll the plugin identity every 5 seconds as a fallback.
 
 ## Headless smoke test
 

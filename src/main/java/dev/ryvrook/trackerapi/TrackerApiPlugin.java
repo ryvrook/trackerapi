@@ -159,6 +159,26 @@ public final class TrackerApiPlugin extends JavaPlugin {
             services.publisher.publish(new ServerLifecycle(services.header(null, null), ServerLifecycle.Phase.STARTED));
         }
         getLogger().at(Level.INFO).log("TrackerAPI %s started", version());
+        reloadDependentsAfterReload();
+    }
+
+    /**
+     * After a reload of TrackerAPI the plugins that use it are still linked to the old instance. They are
+     * reloaded here, a moment after this start returned, so the owner does not have to remember the order.
+     * On a fresh boot no dependent is enabled yet and nothing happens.
+     */
+    private void reloadDependentsAfterReload() {
+        java.util.List<com.hypixel.hytale.common.plugin.PluginIdentifier> dependents = Dependents.enabled(getIdentifier());
+        if (dependents.isEmpty()) {
+            return;
+        }
+        getLogger().at(Level.INFO).log("TrackerAPI found %d plugins linked to its previous instance and reloads them in two seconds", dependents.size());
+        services.timer.schedule(() -> {
+            if (stopping) {
+                return;
+            }
+            Dependents.reload(dependents, getLogger());
+        }, 2, TimeUnit.SECONDS);
     }
 
     @Override

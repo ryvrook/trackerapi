@@ -53,7 +53,7 @@ All of them need the `trackerapi.admin` permission. The console has every permis
 | `autosaveSeconds` | `60` | How often the counters are saved |
 | `boardSeconds` | `60` | How often the leaderboards are rebuilt, 0 turns them off |
 | `queueCapacity` | `65536` | Size of the async queue, events past it are dropped and counted |
-| `listenerBudgetMillis` | `5` | How long an async listener may take per batch before it is warned, then suspended |
+| `listenerBudgetMillis` | `50` | How long an async listener may take per batch before it is warned, and suspended after twenty such batches in a row |
 | `sampleSeconds` | `1` | Seconds between position samples |
 | `vitalsSeconds` | `0` | Seconds between health, stamina and mana samples, 0 turns them off |
 | `chatRecordText` | `false` | Record the text of chat messages, otherwise only the length |
@@ -90,7 +90,7 @@ Every event record has `kind()`, `at()`, `seq()`, `world()` and `player()`, plus
 
 Counters follow one key scheme in `Keys`. A total such as `block_broken`, a per id count such as `block_broken:Rock_Stone` or `kill:Goblin_Scrapper`, and a per world copy such as `world:default:block_broken`. Your plugin may add counters of its own under its own prefix, such as `myplugin:points`, and they are saved with everything else.
 
-A `/plugin reload` of TrackerAPI needs its consumers reloaded too, because their linked classes belong to the old TrackerAPI instance. TrackerAPI lists them when it stops.
+A `/plugin reload` of TrackerAPI leaves its consumers linked to the old instance, so TrackerAPI reloads every enabled plugin that lists it as a dependency two seconds after it starts again. Reload TrackerAPI first and the rest follows.
 
 ## Performance
 

@@ -34,7 +34,7 @@ public final class TrackerConfig {
     /** Size of the async queue. Events past this are dropped and counted. */
     public int queueCapacity = 65_536;
     /** Milliseconds each async listener may take per batch before it is warned, then suspended. */
-    public int listenerBudgetMillis = 5;
+    public int listenerBudgetMillis = 50;
     /** Seconds between position samples, which drive PLAYER_MOVED and the snapshots. */
     public int sampleSeconds = 1;
     /** Seconds between VITALS_SAMPLED events, 0 turns them off. */

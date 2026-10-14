@@ -1,5 +1,10 @@
 # Changelog
 
+## 1.0.3
+
+- After a reload of TrackerAPI, the plugins that use it are reloaded automatically two seconds later, so the order of reloads no longer matters.
+- The default listener budget is 50 ms per batch instead of 5 ms. The warning stays, and a listener is only suspended after twenty batches in a row over budget.
+
 ## 1.0.2
 
 - Queued crafts count one run per event. The engine fires one craft event per finished unit of a bench queue and stamps each with the quantity of the whole batch, so adding the quantity counted a batch of a hundred as ten thousand. Instant crafts still carry their real count in one event.
