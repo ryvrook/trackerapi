@@ -6,6 +6,7 @@ import dev.ryvrook.trackerapi.bus.Dispatcher;
 import dev.ryvrook.trackerapi.bus.Publisher;
 import dev.ryvrook.trackerapi.counters.CounterSink;
 import dev.ryvrook.trackerapi.counters.CounterStore;
+import dev.ryvrook.trackerapi.facts.Forgetting;
 import dev.ryvrook.trackerapi.facts.PlayerRegistry;
 import dev.ryvrook.trackerapi.util.Perf;
 
@@ -26,6 +27,7 @@ public final class Services {
     public final CounterStore counters;
     public final CounterSink counterSink;
     public final PlayerRegistry players;
+    public final Forgetting forgetting = new Forgetting();
     public final ScheduledExecutorService io;
     public final ScheduledExecutorService timer;
     private volatile TrackerConfig config;
