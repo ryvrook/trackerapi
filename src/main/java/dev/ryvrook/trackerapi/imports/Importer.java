@@ -202,19 +202,4 @@ public final class Importer {
         pc.setImported(imported);
         return written;
     }
-
-    /** {@code /trackerapi import feats}. Completes with the reply line. */
-    public java.util.concurrent.CompletableFuture<String> runFeats(boolean force) {
-        return java.util.concurrent.CompletableFuture.completedFuture("import is not available yet");
-    }
-
-    /** {@code /trackerapi import chronicle}. Completes with the reply line. */
-    public java.util.concurrent.CompletableFuture<String> runChronicle(boolean force) {
-        return java.util.concurrent.CompletableFuture.completedFuture("import is not available yet");
-    }
-
-    /** {@code /trackerapi import all}. Completes with the reply line. */
-    public java.util.concurrent.CompletableFuture<String> runAll(boolean force) {
-        return java.util.concurrent.CompletableFuture.completedFuture("import is not available yet");
-    }
 }
