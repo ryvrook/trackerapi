@@ -16,6 +16,8 @@ import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.locks.Lock;
+import java.util.concurrent.locks.ReentrantLock;
 import java.util.logging.Level;
 
 /**
@@ -32,6 +34,13 @@ final class Dependents {
 
     /** How long a reload that finishes on a future may take before the owner is told to do it by hand. */
     static final long SETTLE_MILLIS = 15_000;
+    /**
+     * The system properties key of the lock every reloader of the suite takes for its whole pass. A JDK
+     * lock in the JVM wide properties is the one object TrackerAPI and Coinage both see, whatever loaded them.
+     */
+    static final String LOCK_KEY = "ryvrook.dependents.lock";
+    /** How long a pass waits for another reloader's pass before it goes ahead on the instance check alone. */
+    static final long LOCK_SECONDS = 30;
 
     private Dependents() {
     }
@@ -156,9 +165,12 @@ final class Dependents {
      * followed by a wait of up to {@link #SETTLE_MILLIS} for the new instance to be enabled, which also
      * keeps the order, Dominion is not reloaded before the Feats it reads is up. Runs on the timer thread.
      * Returns how many are linked to the new instance.
+     *
+     * <p>The whole pass runs under the suite lock, so when TrackerAPI reloads Coinage and Coinage starts its
+     * own pass two seconds later, Coinage waits for TrackerAPI to finish and then finds every shared
+     * dependent already on a new instance. Each plugin starts once.
      */
     static int reload(List<Dependent> dependents, HytaleLogger logger) {
-        int n = 0;
         PluginManager manager;
         try {
             manager = PluginManager.get();
@@ -168,6 +180,31 @@ final class Dependents {
         if (manager == null) {
             return 0;
         }
+        Lock lock = sharedLock();
+        boolean held;
+        try {
+            held = lock.tryLock(LOCK_SECONDS, TimeUnit.SECONDS);
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            return 0;
+        }
+        try {
+            return reloadAll(manager, dependents, logger);
+        } finally {
+            if (held) {
+                lock.unlock();
+            }
+        }
+    }
+
+    /** The lock shared by every reloader in the JVM, see {@link #LOCK_KEY}. */
+    static Lock sharedLock() {
+        Object o = System.getProperties().computeIfAbsent(LOCK_KEY, k -> new ReentrantLock());
+        return o instanceof Lock l ? l : new ReentrantLock();
+    }
+
+    private static int reloadAll(PluginManager manager, List<Dependent> dependents, HytaleLogger logger) {
+        int n = 0;
         for (Dependent d : dependents) {
             PluginIdentifier id = d.id();
             try {

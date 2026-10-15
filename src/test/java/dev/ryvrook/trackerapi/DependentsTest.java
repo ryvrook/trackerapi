@@ -7,6 +7,7 @@ import java.util.Map;
 import java.util.Set;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertSame;
 
 class DependentsTest {
     private static final String COINAGE = "ryvrook:coinage";
@@ -41,5 +42,11 @@ class DependentsTest {
     void aCycleStillReloadsEveryPluginOnce() {
         Map<String, Set<String>> cycle = Map.of("a:a", Set.of("b:b"), "b:b", Set.of("a:a"));
         assertEquals(List.of("b:b", "a:a"), Dependents.order(List.of("a:a", "b:b"), cycle));
+    }
+
+    @Test
+    void everyReloaderGetsTheSameLockFromTheSystemProperties() {
+        assertSame(Dependents.sharedLock(), Dependents.sharedLock());
+        assertSame(Dependents.sharedLock(), System.getProperties().get(Dependents.LOCK_KEY));
     }
 }
