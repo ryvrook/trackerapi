@@ -47,7 +47,7 @@ public abstract class ItemLedger {
         synchronized (mine) {
             prune(mine, nowNanos);
             if (size(mine) >= maxEntries) {
-                return; // keep memory bounded, a flood simply stops being remembered
+                return; // memory stays bounded, a flood past the cap is not remembered
             }
             mine.computeIfAbsent(itemId, id -> new ArrayDeque<>()).addLast(new Entry(amount, nowNanos));
         }

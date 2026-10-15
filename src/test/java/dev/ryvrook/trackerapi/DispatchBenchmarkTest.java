@@ -3,17 +3,49 @@ package dev.ryvrook.trackerapi;
 import dev.ryvrook.trackerapi.api.Delivery;
 import dev.ryvrook.trackerapi.api.EventKind;
 import dev.ryvrook.trackerapi.api.TrackerEvent;
-import dev.ryvrook.trackerapi.api.event.*;
+import dev.ryvrook.trackerapi.api.event.BlockBroken;
+import dev.ryvrook.trackerapi.api.event.BlockBrokenByWorld;
+import dev.ryvrook.trackerapi.api.event.BlockPlaced;
+import dev.ryvrook.trackerapi.api.event.BlockUsed;
+import dev.ryvrook.trackerapi.api.event.ChunkGenerated;
+import dev.ryvrook.trackerapi.api.event.CreatureSpawned;
+import dev.ryvrook.trackerapi.api.event.CreatureTamed;
+import dev.ryvrook.trackerapi.api.event.DamageDealt;
+import dev.ryvrook.trackerapi.api.event.EffectChanged;
+import dev.ryvrook.trackerapi.api.event.EntityDied;
+import dev.ryvrook.trackerapi.api.event.GameModeChanged;
+import dev.ryvrook.trackerapi.api.event.GameTimeSampled;
+import dev.ryvrook.trackerapi.api.event.InteractionStarted;
+import dev.ryvrook.trackerapi.api.event.ItemConsumed;
+import dev.ryvrook.trackerapi.api.event.ItemCrafted;
+import dev.ryvrook.trackerapi.api.event.ItemDropped;
+import dev.ryvrook.trackerapi.api.event.ItemPickedUp;
+import dev.ryvrook.trackerapi.api.event.ItemsGained;
+import dev.ryvrook.trackerapi.api.event.ItemsLost;
+import dev.ryvrook.trackerapi.api.event.MemoryRecorded;
+import dev.ryvrook.trackerapi.api.event.MoonPhaseChanged;
+import dev.ryvrook.trackerapi.api.event.MountChanged;
+import dev.ryvrook.trackerapi.api.event.MovementEdge;
+import dev.ryvrook.trackerapi.api.event.PlayerChatted;
+import dev.ryvrook.trackerapi.api.event.PlayerLeft;
+import dev.ryvrook.trackerapi.api.event.PlayerMoved;
+import dev.ryvrook.trackerapi.api.event.PlayerRespawned;
+import dev.ryvrook.trackerapi.api.event.PlayerSlept;
+import dev.ryvrook.trackerapi.api.event.PlayerTeleported;
+import dev.ryvrook.trackerapi.api.event.PlayerWorldChanged;
+import dev.ryvrook.trackerapi.api.event.ProjectileLaunched;
+import dev.ryvrook.trackerapi.api.event.VitalsSampled;
+import dev.ryvrook.trackerapi.api.event.WeatherChanged;
+import dev.ryvrook.trackerapi.api.event.WorldAdded;
+import dev.ryvrook.trackerapi.api.event.WorldEventEnded;
+import dev.ryvrook.trackerapi.api.event.WorldEventStarted;
+import dev.ryvrook.trackerapi.api.event.WorldRemoved;
+import dev.ryvrook.trackerapi.api.event.ZoneDiscovered;
 import dev.ryvrook.trackerapi.bus.Dispatcher;
 import dev.ryvrook.trackerapi.bus.Publisher;
 import dev.ryvrook.trackerapi.util.Perf;
 import org.junit.jupiter.api.Test;
 
-import java.io.IOException;
-import java.nio.charset.StandardCharsets;
-import java.nio.file.Files;
-import java.nio.file.Path;
-import java.nio.file.StandardOpenOption;
 import java.util.EnumSet;
 import java.util.List;
 import java.util.Locale;
@@ -24,9 +56,9 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 
 /**
  * The dispatch thread with the subscriptions the suite opens on a server that runs every mod. Feats takes
- * 18 kinds, Chronicle Stats 32, Atlas and Coinage a few each, all one subscription per kind. The events
- * are queued first and then drained, so the time is the dispatch thread's own cost per event, not the
- * publisher's. Run with -Pbench for a million events and the numbers in build/benchmark.txt.
+ * 19 kinds, Chronicle Stats 34, Atlas 3 and Coinage 2, one subscription per kind, 58 in all. Dominion only
+ * writes counters. The events are queued first and then drained, so the time is the dispatch thread's own
+ * cost per event, not the publisher's. Run with -Pbench for a million events and the numbers in the console.
  */
 class DispatchBenchmarkTest {
     private static final boolean BENCH = Boolean.getBoolean("trackerapi.bench");
@@ -50,7 +82,7 @@ class DispatchBenchmarkTest {
     private static final List<Class<? extends TrackerEvent>> COINAGE = List.of(EntityDied.class, BlockBroken.class);
 
     @Test
-    void fiveConsumersDrainABlockStream() throws IOException {
+    void theSuiteConsumersDrainABlockStream() {
         Perf perf = new Perf();
         Publisher publisher = new Publisher(TestSupport.LOGGER, perf, 1 << 20, null);
         Dispatcher dispatcher = new Dispatcher(publisher, TestSupport.LOGGER, perf);
@@ -86,12 +118,9 @@ class DispatchBenchmarkTest {
 
         if (BENCH) {
             String out = String.format(Locale.ROOT, "TrackerAPI dispatch benchmark, %,d block events through %d subscriptions "
-                    + "of four consumers%n  %-14s %8.1f ms  %7.1f ns/event%n", EVENTS, subscriptions, "drain",
+                    + "of the suite%n  %-14s %8.1f ms  %7.1f ns/event%n", EVENTS, subscriptions, "drain",
                     nanos / 1e6, (double) nanos / EVENTS);
             System.out.print(out);
-            Path report = Path.of("build", "benchmark.txt");
-            Files.createDirectories(report.getParent());
-            Files.writeString(report, out, StandardCharsets.UTF_8, StandardOpenOption.CREATE, StandardOpenOption.APPEND);
         }
     }
 }
