@@ -56,8 +56,8 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 
 /**
  * The dispatch thread with the subscriptions the suite opens on a server that runs every mod. Feats takes
- * 19 kinds, Chronicle Stats 34, Atlas 3 and Coinage 2, one subscription per kind, and Dominion one
- * subscription for its four gather kinds, 59 in all. The events are queued first and then drained, so the time is the dispatch thread's own
+ * 19 kinds, Chronicle Stats 35, Atlas 3 and Coinage 2, one subscription per kind, and Dominion one
+ * subscription for its four gather kinds, 60 in all. The events are queued first and then drained, so the time is the dispatch thread's own
  * cost per event, not the publisher's. Run with -Pbench for a million events and the numbers in the console.
  */
 class DispatchBenchmarkTest {
@@ -71,7 +71,7 @@ class DispatchBenchmarkTest {
             WorldRemoved.class, ZoneDiscovered.class);
     private static final List<Class<? extends TrackerEvent>> CHRONICLE = List.of(BlockBroken.class,
             BlockBrokenByWorld.class, BlockPlaced.class, BlockUsed.class, ChunkGenerated.class, CreatureSpawned.class,
-            DamageDealt.class, EffectChanged.class, EntityDied.class, GameTimeSampled.class, InteractionStarted.class,
+            DamageDealt.class, EffectChanged.class, EntityDied.class, GameModeChanged.class, GameTimeSampled.class, InteractionStarted.class,
             ItemConsumed.class, ItemCrafted.class, ItemDropped.class, ItemPickedUp.class, ItemsGained.class,
             ItemsLost.class, MemoryRecorded.class, MoonPhaseChanged.class, MountChanged.class, MovementEdge.class,
             PlayerChatted.class, PlayerLeft.class, PlayerMoved.class, PlayerRespawned.class, PlayerSlept.class,
