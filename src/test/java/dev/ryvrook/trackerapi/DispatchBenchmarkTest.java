@@ -56,8 +56,8 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 
 /**
  * The dispatch thread with the subscriptions the suite opens on a server that runs every mod. Feats takes
- * 19 kinds, Chronicle Stats 34, Atlas 3 and Coinage 2, one subscription per kind, 58 in all. Dominion only
- * writes counters. The events are queued first and then drained, so the time is the dispatch thread's own
+ * 19 kinds, Chronicle Stats 34, Atlas 3 and Coinage 2, one subscription per kind, and Dominion one
+ * subscription for its four gather kinds, 59 in all. The events are queued first and then drained, so the time is the dispatch thread's own
  * cost per event, not the publisher's. Run with -Pbench for a million events and the numbers in the console.
  */
 class DispatchBenchmarkTest {
@@ -80,6 +80,8 @@ class DispatchBenchmarkTest {
     private static final List<Class<? extends TrackerEvent>> ATLAS = List.of(BlockBroken.class, BlockPlaced.class,
             EntityDied.class);
     private static final List<Class<? extends TrackerEvent>> COINAGE = List.of(EntityDied.class, BlockBroken.class);
+    private static final EnumSet<EventKind> DOMINION = EnumSet.of(EventKind.BLOCK_BROKEN, EventKind.BLOCK_PLACED,
+            EventKind.ITEM_PICKED_UP, EventKind.ITEM_DROPPED);
 
     @Test
     void theSuiteConsumersDrainABlockStream() {
@@ -94,6 +96,8 @@ class DispatchBenchmarkTest {
                 subscriptions++;
             }
         }
+        publisher.subscribe("Bench", DOMINION, Delivery.ASYNC, e -> delivered.incrementAndGet());
+        subscriptions++;
         UUID player = UUID.randomUUID();
         for (int i = 0; i < EVENTS; i++) {
             if ((i & 1) == 0) {
@@ -104,8 +108,8 @@ class DispatchBenchmarkTest {
                         "Rock_Stone", false, false));
             }
         }
-        // Breaks reach Feats, Chronicle, Atlas and Coinage, places the first three.
-        long expected = (long) (EVENTS / 2) * 4 + (long) (EVENTS / 2) * 3;
+        // Breaks reach Feats, Chronicle, Atlas, Coinage and Dominion, places all but Coinage.
+        long expected = (long) (EVENTS / 2) * 5 + (long) (EVENTS / 2) * 4;
         long start = System.nanoTime();
         dispatcher.start();
         while (delivered.get() < expected && System.nanoTime() - start < 60_000_000_000L) {

@@ -24,7 +24,7 @@ On the first boot TrackerAPI looks for the player files of Feats and Chronicle S
 - **Chronicle Stats 1.2.0 and newer** does the same for its statistics, recorders and web dashboard.
 - **Atlas 1.6.0 and newer** takes its activity heat layer and kill feed from TrackerAPI.
 - **Coinage 1.1.0** pays its kill and block rewards from TrackerAPI events and writes money earned and spent per currency as `coinage:earned:<currency>` and `coinage:spent:<currency>` counters.
-- **Dominion 0.5.1** writes ten faction counters under `dominion:`, such as `dominion:claims` and `dominion:sieges_won`, with leaderboards for five of them.
+- **Dominion 0.5.1** writes ten faction counters under `dominion:`, such as `dominion:claims` and `dominion:sieges_won`, with a leaderboard for each, and takes block and item events for its gather missions.
 
 Each of them has a config key, `Tracker` in Feats and `tracker` in the others, with `auto`, `always` and `never`. With `auto` the plugin uses TrackerAPI when it is present and tracks on its own when it is not.
 
