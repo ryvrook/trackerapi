@@ -84,8 +84,7 @@ leaderboard.
 Lullaby does not use it.
 
 A `/plugin reload` of TrackerAPI leaves those plugins linked to the old classes, so two seconds after it starts
-again TrackerAPI reloads each of them in dependency order, Coinage before Chronicle Stats and Dominion. Reload
-TrackerAPI and the rest follows.
+again TrackerAPI reloads each of them in dependency order, Coinage before Chronicle Stats and Dominion.
 
 ## For plugin authors
 
