@@ -173,11 +173,15 @@ public final class TrackerApiPlugin extends JavaPlugin {
             return;
         }
         getLogger().at(Level.INFO).log("TrackerAPI found %d plugins linked to its previous instance and reloads them in two seconds", dependents.size());
+        // The pass can wait up to 30 s for the shared lock and 15 s per plugin, so it runs on its own short
+        // lived thread and never holds up the timer that drives the counters and the journal.
         services.timer.schedule(() -> {
             if (stopping) {
                 return;
             }
-            Dependents.reload(dependents, getLogger());
+            Thread pass = new Thread(() -> Dependents.reload(dependents, getLogger()), "TrackerAPI-dependents");
+            pass.setDaemon(true);
+            pass.start();
         }, 2, TimeUnit.SECONDS);
     }
 

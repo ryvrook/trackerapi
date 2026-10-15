@@ -38,6 +38,7 @@ The server artifact comes from `maven.hytale.com` as `compileOnly`, with the cha
 | `TrackerAPI-dispatch` | Async listener batches. Parks when idle, unparked by the publisher. |
 | `TrackerAPI-io` | Every file read and write, the journal flush, prune and queries, the import, the board rebuild. |
 | `TrackerAPI-timer` | The sampler and clock posts (they only call `WorldTasks.Gate.post`), playtime, autosave and board timers, the offline grace sweep. |
+| `TrackerAPI-dependents` | Short lived, started two seconds after a reload to run the dependents pass under the shared lock, so the timer never waits on another plugin. |
 
 Components are touched only on the owning world thread. `PlayerRef.getTransform()` and `getComponentConcurrent` are the sanctioned off thread reads. Nothing uses `HytaleServer.SCHEDULED_EXECUTOR`. Every thread is a daemon owned by the plugin instance, so a reload stops the old ones and starts new ones. Verified on a headless 0.7.1 server on 2026-10-14, a reload left exactly one of each thread.
 
