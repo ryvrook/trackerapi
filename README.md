@@ -11,9 +11,9 @@ Hytale server 0.7.0 release or newer, tested on 0.7.1, and Java 25. No client mo
 
 ## Install
 
-Put `TrackerAPI-1.0.3.jar` in the server's `mods` folder and start the server, or run
+Put `TrackerAPI-<version>.jar` in the server's `mods` folder and start the server, or run
 `/plugin load Ryvrook:TrackerAPI`. The log should say
-`TrackerAPI 1.0.3 set up, 53 hooks registered, 0 unsupported, 62 kinds tracked, journal on`. Settings go to
+`TrackerAPI <version> set up, 53 hooks registered, 0 unsupported, 62 kinds tracked, journal on`. Settings go to
 `mods/Ryvrook_TrackerAPI/TrackerAPI.json`.
 
 On first boot it reads the Feats and Chronicle Stats player files it finds next door and seeds its counters

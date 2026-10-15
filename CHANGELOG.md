@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 1.1.0
 
 Players see no change. For admins, a reload of TrackerAPI now brings its dependents back in the right order, each
 once. Updating is a jar swap, no setting changed.
