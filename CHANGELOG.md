@@ -1,11 +1,21 @@
 # Changelog
 
-## Unreleased
+## 1.1.0
 
-- Counters other plugins write for an offline player, such as Dominion's `dominion:sieges_won` for members who were not on, go into that player's file instead of being dropped. They also feed the server totals now.
-- A plugin counter raised with `raiseTo` in the first moment after a join, before the player's file was read, keeps the larger value instead of adding the two.
-- After a reload of TrackerAPI its dependents come back in dependency order, so Coinage is reloaded before Chronicle Stats and Dominion, and Feats and Atlas before Dominion. A dependent the server finishes loading a moment later, such as Feats, no longer gets a false "could not reload" warning, and one reloaded by someone else meanwhile is left alone. The pass holds a lock that Coinage takes too, so a reload of TrackerAPI starts each dependent once, not once per reloader.
-- The dispatch thread skips a listener when the batch holds none of its kinds. With the 60 subscriptions of the whole suite a block event costs about 65 ns on that thread instead of 155.
+Players see no change. For admins, a reload of TrackerAPI now brings its dependents back in the right order, each
+once. Updating is a jar swap, no setting changed.
+
+- After a reload of TrackerAPI its dependents come back in dependency order, so Coinage is reloaded before
+  Chronicle Stats and Dominion, and Feats and Atlas before Dominion. A dependent the server finishes loading a
+  moment later, such as Feats, no longer gets a false "could not reload" warning, and one someone else reloaded
+  in the meantime is left alone. The pass holds a lock Coinage takes too, so each dependent starts once, not once
+  per reloader.
+- Counters another plugin writes for an offline player, such as Dominion's `dominion:sieges_won` for members who
+  were not on, go into that player's file instead of being dropped, and feed the server totals.
+- A plugin counter raised with `raiseTo` in the first moment after a join, before the player's file was read,
+  keeps the larger value instead of adding the two.
+- The dispatch thread skips a listener when a batch holds none of its kinds. With the 60 subscriptions of the
+  whole suite a block event costs about 65 ns on that thread instead of 155.
 
 ## 1.0.3
 
