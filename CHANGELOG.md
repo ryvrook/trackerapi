@@ -1,5 +1,12 @@
 # Changelog
 
+## Unreleased
+
+- Counters other plugins write for an offline player, such as Dominion's `dominion:sieges_won` for members who were not on, go into that player's file instead of being dropped. They also feed the server totals now.
+- A plugin counter raised with `raiseTo` in the first moment after a join, before the player's file was read, keeps the larger value instead of adding the two.
+- After a reload of TrackerAPI its dependents come back in dependency order, so Coinage is reloaded before Chronicle Stats and Dominion, and Feats and Atlas before Dominion.
+- The dispatch thread skips a listener when the batch holds none of its kinds. With the 58 subscriptions of the whole suite a block event costs about 55 ns on that thread instead of 125.
+
 ## 1.0.3
 
 - After a reload of TrackerAPI, the plugins that use it are reloaded automatically two seconds later, so the order of reloads no longer matters.

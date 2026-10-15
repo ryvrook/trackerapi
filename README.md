@@ -23,6 +23,8 @@ On the first boot TrackerAPI looks for the player files of Feats and Chronicle S
 - **Feats 1.5.0 and newer** stops registering its own tracking systems when TrackerAPI is installed and feeds its feats from TrackerAPI events. Counts carry on in the Feats files without a gap.
 - **Chronicle Stats 1.2.0 and newer** does the same for its statistics, recorders and web dashboard.
 - **Atlas 1.6.0 and newer** takes its activity heat layer and kill feed from TrackerAPI.
+- **Coinage 1.1.0** pays its kill and block rewards from TrackerAPI events and writes money earned and spent per currency as `coinage:earned:<currency>` and `coinage:spent:<currency>` counters.
+- **Dominion 0.5.1** writes ten faction counters under `dominion:`, such as `dominion:claims` and `dominion:sieges_won`, with leaderboards for five of them.
 
 Each of them has a config key, `Tracker` in Feats and `tracker` in the others, with `auto`, `always` and `never`. With `auto` the plugin uses TrackerAPI when it is present and tracks on its own when it is not.
 
@@ -88,7 +90,7 @@ The enable hook runs at once when TrackerAPI is already up and again whenever it
 
 Every event record has `kind()`, `at()`, `seq()`, `world()` and `player()`, plus its own fields. Records only ever gain fields, so read them through their accessors and keep a default branch when you switch on the kind. The full list is the `EventKind` enum and the records under `dev.ryvrook.trackerapi.api.event`.
 
-Counters follow one key scheme in `Keys`. A total such as `block_broken`, a per id count such as `block_broken:Rock_Stone` or `kill:Goblin_Scrapper`, and a per world copy such as `world:default:block_broken`. Your plugin may add counters of its own under its own prefix, such as `myplugin:points`, and they are saved with everything else.
+Counters follow one key scheme in `Keys`. A total such as `block_broken`, a per id count such as `block_broken:Rock_Stone` or `kill:Goblin_Scrapper`, and a per world copy such as `world:default:block_broken`. Your plugin may add counters of its own under its own prefix, such as `myplugin:points`, and they are saved with everything else. A write for an offline player goes into their file on the IO thread a moment later. Ask for a leaderboard of such a key with `counters().watchBoard(key)`.
 
 A `/plugin reload` of TrackerAPI leaves its consumers linked to the old instance, so TrackerAPI reloads every enabled plugin that lists it as a dependency two seconds after it starts again. Reload TrackerAPI first and the rest follows.
 

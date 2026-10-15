@@ -6,7 +6,7 @@ TrackerAPI is built against Hytale server 0.7.1 with Java 25. Plugin id `Ryvrook
 
 ```
 JAVA_HOME=/opt/homebrew/opt/openjdk@25/libexec/openjdk.jdk/Contents/Home ./gradlew build
-./gradlew test -Pbench        prints the publishing benchmark and writes build/benchmark.txt
+./gradlew test -Pbench        prints the publishing and dispatch benchmarks
 ./gradlew installMod          copies the jar into the local Hytale UserData/Mods folder
 ```
 
@@ -18,7 +18,7 @@ The server artifact comes from `maven.hytale.com` as `compileOnly`, with the cha
 |---|---|
 | `api` | The public contract. `TrackerApi` (the entry point and the static enable and disable hooks), `TrackerEvent` and `Header`, `EventKind`, `Actor`, `Delivery`, `Subscription`, `Counters` and `Keys`, `PlayerSnapshot`, `Journal`, `Stats`. Methods and record components are only ever added. |
 | `api.event` | One record per kind, 62 of them. Plain values only, never engine objects. |
-| `bus` | `Publisher` (the want flags, sequence numbers, sinks, sync delivery with suspension), `MpmcQueue` (bounded lock free, Vyukov), `Dispatcher` (the async thread, batches of 512, budget per listener, suspension after 20 batches over budget), `SubscriptionImpl`. |
+| `bus` | `Publisher` (the want flags, sequence numbers, sinks, sync delivery with suspension), `MpmcQueue` (bounded lock free, Vyukov), `Dispatcher` (the async thread, batches of 512, a listener with none of its kinds in a batch is skipped whole, budget per listener, suspension after 20 batches over budget), `SubscriptionImpl`. |
 | `counters` | `CounterStore` (online players in memory, files on IO, join and leave, autosave), `PlayerCounters`, `ServerCounters`, `NamesIndex`, `Boards`, `CounterSink` (the rulebook that turns events into keys), `CounterRules` (which keys are bests). |
 | `facts` | What the hooks compute once so every consumer sees the same numbers. `PlayerRegistry`, `Sampler`, `MovementSampler`, `MoveBits`, `PlacedBlocks`, `RecentPlacements`, `RecentDrops`, `RecentStash`, `RecentContainers`, `BossLedger`, `Bosses`, `TameWatch`, `KillStreaks`, `WorldTasks`, `Forgetting`. |
 | `hooks` | `HookSet`, `Registrar` (guarded registration with straggler cleanup), `Hooks` (the install order), `PlayerEventSystem` and the five sets `PlayerHooks`, `BlockHooks`, `ItemHooks` with `InventoryHook`, `CombatHooks` (subpackage `combat`), `WorldHooks` (subpackage `world`), plus `MovementEdgeSystem`. |
@@ -63,7 +63,7 @@ mods/Ryvrook_TrackerAPI/
 
 Every write goes through a temp file and a move. A file that does not parse is moved aside as `<name>.corrupt-<millis>.json` and the player starts from zero, with one warning.
 
-Counter keys. A total such as `block_broken`, a per id count such as `block_broken:Rock_Stone`, and a per world copy of the totals in `Keys.PER_WORLD_TOTALS` as `world:<name>:<total>`. Bests (`biggest_hit`, `kill_streak_best`, `session_longest`, `longest_fall`, `highest_y`) merge by maximum, `lowest_y` by minimum, everything else by sum. Other plugins may write under their own prefix through `Counters.add` and `raiseTo`, and `Keys.isExternal` refuses the reserved prefixes.
+Counter keys. A total such as `block_broken`, a per id count such as `block_broken:Rock_Stone`, and a per world copy of the totals in `Keys.PER_WORLD_TOTALS` as `world:<name>:<total>`. Bests (`biggest_hit`, `kill_streak_best`, `session_longest`, `longest_fall`, `highest_y`) merge by maximum, `lowest_y` by minimum, everything else by sum. Other plugins may write under their own prefix through `Counters.add` and `raiseTo`, and `Keys.isExternal` refuses the reserved prefixes. Those writes feed the server totals too. A write for an offline player is queued, and one IO task applies the whole queue, to the live object when the player came back, to the leaving object when its save is still queued, to the file otherwise, and drops it when there is no file. A plugin key raised before a join's file read landed merges as the larger value, not the sum. Leaderboards hold every bare total and the keys a plugin asked for with `watchBoard`, Dominion asks for five of its own.
 
 ## Config
 
@@ -75,7 +75,19 @@ Counter keys. A total such as `block_broken`, a per id count such as `block_brok
 
 ## Consumers
 
-Feats 1.5.0, Chronicle Stats 1.2.0 and Atlas 1.6.0 list `Ryvrook:TrackerAPI` under `OptionalDependencies` with `>=1.0.0`, decide at setup from the plugin manager whether to register their own systems, bind from start through `TrackerApi.onEnable`, and keep every TrackerAPI import in one bridge class. The engine's `PluginClassLoader` resolves classes of listed dependencies through `PluginManager$PluginBridgeClassLoader`, which walks `Dependencies` then `OptionalDependencies` (verified by javap on 0.7.1). A reload of TrackerAPI leaves consumers linked to the old classes. `Dependents` finds every enabled plugin whose manifest names TrackerAPI and reloads it through `PluginManager.reload` two seconds after start, and the consumers still poll the plugin identity every 5 seconds as a fallback.
+Five plugins list `Ryvrook:TrackerAPI` under `OptionalDependencies` with `>=1.0.0` and keep every TrackerAPI import in one bridge class.
+
+| Plugin | What it takes | What it gives back |
+|---|---|---|
+| Feats 1.5.1 | 19 kinds, one async subscription each, in place of its own systems | nothing |
+| Chronicle Stats 1.3.0 | 34 kinds and the snapshots, in place of its own tracking hooks | nothing |
+| Atlas 1.6.0 | BLOCK_BROKEN, BLOCK_PLACED, ENTITY_DIED and the snapshots | nothing |
+| Coinage 1.1.0 | ENTITY_DIED and BLOCK_BROKEN for the rewards module | `coinage:earned:<currency>` and `coinage:spent:<currency>` |
+| Dominion 0.5.1 | nothing | ten `dominion:` counters, five of them watched for boards |
+
+Each decides at setup from the plugin manager whether to register its own systems, and binds from start through `TrackerApi.onEnable`. The engine's `PluginClassLoader` resolves classes of listed dependencies through `PluginManager$PluginBridgeClassLoader`, which walks `Dependencies` then `OptionalDependencies` (verified by javap on 0.7.1). A reload of TrackerAPI leaves consumers linked to the old classes. `Dependents` finds every enabled plugin whose manifest names TrackerAPI and reloads it through `PluginManager.reload` two seconds after start. They go in an order where each comes after the others in the list it names itself, so Feats, Atlas and Coinage come back before Dominion and Chronicle Stats, which read them. `PluginManager` keeps plugins in a linked map and a reloaded plugin moves to its end, so the plain map order is not enough once the owner reloaded one by hand. `PluginManager.unload` only cascades over hard `Dependencies`, which none of the suite uses. The consumers still poll the plugin identity every 5 seconds as a fallback.
+
+The dispatch benchmark opens the subscriptions the suite opens, 58 of them, and drains a million block events at about 55 ns an event on the dispatch thread. Before batches skipped listeners with none of their kinds it was about 125 ns.
 
 ## Headless smoke test
 
@@ -89,4 +101,4 @@ Smoke runs on 2026-10-14 passed all of the above on 0.7.1.
 
 ## Not verified without a client
 
-No player has joined a TrackerAPI server yet. Everything player driven (block, item, combat, movement, chat and command kinds, the counters they feed, the consumer bridges) has unit tests over synthetic records and ported engine reads that Feats and Chronicle run live, but the first real session is still to come. The per agent reports listed what only a server can confirm. The main ones: that the damage system's ordering after the filter group registers and gives the final amounts, when the projectile hit chain fires and what it carries, whether ITEM_EQUIPPED and ITEM_BROKE arrive as the inventory transactions assumed, the respawn position timing, the order of PlayerReady and AddPlayerToWorld on a first join, and the real volume of the high volume kinds.
+No player has joined a TrackerAPI server yet. Everything player driven (block, item, combat, movement, chat and command kinds, the counters they feed, the consumer bridges) has unit tests over synthetic records and ported engine reads that Feats and Chronicle run live, but the first real session is still to come. What only a live server can confirm is mostly that the damage system's ordering after the filter group registers and gives the final amounts, when the projectile hit chain fires and what it carries, whether ITEM_EQUIPPED and ITEM_BROKE arrive as the inventory transactions assumed, the respawn position timing, the order of PlayerReady and AddPlayerToWorld on a first join, and the real volume of the high volume kinds.
