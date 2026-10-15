@@ -226,8 +226,11 @@ public final class Publisher {
         return tracked[kind.ordinal()];
     }
 
-    /** Sinks changed what they want, for example the journal kinds after a reload. */
-    public void rebuild() {
+    /**
+     * Sinks changed what they want, for example the journal kinds after a reload. Synchronized, since two
+     * threads subscribing at once would otherwise race and the last one to write could leave out the other.
+     */
+    public synchronized void rebuild() {
         if (closed) {
             wants = new byte[EventKind.COUNT];
             return;
@@ -322,7 +325,7 @@ public final class Publisher {
     }
 
     /** Stops publishing and drops every subscription and sink. Call it after the dispatcher drained. */
-    public void close() {
+    public synchronized void close() {
         stopAccepting();
         for (SubscriptionImpl s : subscriptions) {
             s.deactivate();

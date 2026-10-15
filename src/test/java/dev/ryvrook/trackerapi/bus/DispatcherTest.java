@@ -142,6 +142,43 @@ class DispatcherTest {
     }
 
     @Test
+    void aBatchWithoutAListenersKindsSkipsItAndLeavesItsRunAlone() {
+        int pairs = Dispatcher.SUSPEND_AFTER;
+        Publisher pub = publisher(Dispatcher.BATCH * pairs * 2);
+        Dispatcher d = new Dispatcher(pub, TestSupport.LOGGER, perf);
+        d.setBudgetMillis(1);
+        AtomicInteger calls = new AtomicInteger();
+        Subscription slow = pub.subscribe("Breaks", EnumSet.of(EventKind.BLOCK_BROKEN), Delivery.ASYNC, e -> {
+            if (calls.getAndIncrement() % Dispatcher.BATCH == 0) {
+                long until = System.nanoTime() + TimeUnit.MILLISECONDS.toNanos(2);
+                while (System.nanoTime() < until) {
+                    Thread.onSpinWait();
+                }
+            }
+        });
+        List<Long> joins = new ArrayList<>();
+        pub.subscribe("Joins", EnumSet.of(EventKind.PLAYER_JOINED), Delivery.ASYNC, e -> joins.add(e.seq()));
+        // A batch of breaks then a batch of joins, twenty times. The joins never reach the break listener.
+        for (int p = 0; p < pairs; p++) {
+            for (int i = 0; i < Dispatcher.BATCH; i++) {
+                pub.publish(TestSupport.broken(P, "Rock_Stone"));
+            }
+            for (int i = 0; i < Dispatcher.BATCH; i++) {
+                pub.publish(new PlayerJoined(TestSupport.header("default", P), "Alder", false));
+            }
+        }
+        drainHere(d);
+
+        assertEquals((long) Dispatcher.BATCH * pairs, slow.delivered());
+        assertTrue(((SubscriptionImpl) slow).suspendedUntil != 0,
+                "twenty batches of breaks over budget suspend it, the join batches between them do not reset the run");
+        assertEquals((long) Dispatcher.BATCH * pairs, joins.size());
+        for (int i = 1; i < joins.size(); i++) {
+            assertTrue(joins.get(i) > joins.get(i - 1), "in publish order");
+        }
+    }
+
+    @Test
     void aClosedListenerStopsMidBatchAndAFailingOneIsCounted() {
         Publisher pub = publisher(4096);
         Subscription[] self = new Subscription[1];
