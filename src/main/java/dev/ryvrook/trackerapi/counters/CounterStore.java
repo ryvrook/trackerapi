@@ -278,11 +278,13 @@ public final class CounterStore implements Counters {
      * Queues file work on IO. Once the executor is gone the task is dropped with a fine log line, the
      * shutdown queues its own final save before it drains the executor.
      */
-    private void runIo(Runnable task) {
+    private boolean runIo(Runnable task) {
         try {
             io.execute(task);
+            return true;
         } catch (RejectedExecutionException e) {
             logger.at(Level.FINE).log("TrackerAPI skipped counter file work, %s", stopped ? "it is stopping" : "the IO thread is gone");
+            return false;
         }
     }
 
@@ -470,7 +472,7 @@ public final class CounterStore implements Counters {
     // ---- writes of other plugins for players who are offline ----------------------------------------------
 
     /** One write another plugin made for an offline player, a sum or a raise. */
-    private record OfflineWrite(String key, long value, boolean raise) {
+    record OfflineWrite(String key, long value, boolean raise) {
     }
 
     /**
@@ -491,14 +493,39 @@ public final class CounterStore implements Counters {
                 writes = new ArrayList<>(2);
                 offline.put(player, writes);
             }
-            writes.add(new OfflineWrite(key, value, raise));
+            fold(writes, new OfflineWrite(key, value, raise));
             schedule = !offlineQueued;
             offlineQueued = true;
         }
-        if (schedule) {
-            runIo(this::flushOffline);
+        if (schedule && !runIo(this::flushOffline)) {
+            // The IO thread is gone, so nothing would ever apply this queue. Forget it and say so.
+            synchronized (offlineLock) {
+                offline.clear();
+                offlineQueued = false;
+            }
+            return false;
         }
         return true;
+    }
+
+    /**
+     * Adds a write to a player's queue, folded into the last write of the same key when it is the same
+     * kind, so a plugin that writes one key a thousand times while IO is busy keeps one entry, not a thousand.
+     */
+    static void fold(List<OfflineWrite> writes, OfflineWrite w) {
+        for (int i = writes.size() - 1; i >= 0; i--) {
+            OfflineWrite last = writes.get(i);
+            if (!last.key().equals(w.key())) {
+                continue;
+            }
+            if (last.raise() == w.raise()) {
+                long value = w.raise() ? Math.max(last.value(), w.value()) : last.value() + w.value();
+                writes.set(i, new OfflineWrite(w.key(), value, w.raise()));
+                return;
+            }
+            break;
+        }
+        writes.add(w);
     }
 
     /**

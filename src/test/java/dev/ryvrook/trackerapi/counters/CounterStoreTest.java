@@ -275,6 +275,58 @@ class CounterStoreTest {
     }
 
     @Test
+    void anOfflineWriteReachesALeavingPlayerBeforeTheirSaveAndLandsOnce() throws Exception {
+        CounterStore seed = TestSupport.store(dir);
+        seed.join(A, "Alder", 1L);
+        seed.add(A, "dominion:claims", 4);
+        seed.leave(A);
+
+        TestSupport.Manual io = new TestSupport.Manual();
+        CounterStore store = new CounterStore(dir, TestSupport.LOGGER, io, new Perf());
+        store.join(A, "Alder", 2L);
+        io.runAll();
+        assertTrue(store.add(B, "dominion:claims", 1), "B has no file, but the pass is queued now");
+        store.leave(A); // its save queues behind the pass
+        assertTrue(store.add(A, "dominion:claims", 2));
+        assertEquals(2, io.pending(), "A joins the pass already queued");
+        io.runAll();
+        assertEquals(6, JsonFiles.read(store.fileOf(A)).getAsJsonObject("counters").get("dominion:claims").getAsLong());
+        assertEquals(2, store.server("dominion:claims"), "B was dropped, A counted once");
+    }
+
+    @Test
+    void repeatedOfflineWritesFoldIntoOneEntryPerKey() {
+        List<CounterStore.OfflineWrite> writes = new java.util.ArrayList<>();
+        for (int i = 0; i < 1000; i++) {
+            CounterStore.fold(writes, new CounterStore.OfflineWrite("coinage:earned:gold", 3, false));
+            CounterStore.fold(writes, new CounterStore.OfflineWrite("dominion:longest_siege", i, true));
+        }
+        assertEquals(List.of(new CounterStore.OfflineWrite("coinage:earned:gold", 3000, false),
+                new CounterStore.OfflineWrite("dominion:longest_siege", 999, true)), writes);
+        CounterStore.fold(writes, new CounterStore.OfflineWrite("coinage:earned:gold", 5, true));
+        CounterStore.fold(writes, new CounterStore.OfflineWrite("coinage:earned:gold", 1, false));
+        assertEquals(4, writes.size(), "a raise between two sums of one key keeps its place");
+    }
+
+    @Test
+    void theOfflineQueueIsBoundedAndRefusesWhenIoIsGone() {
+        TestSupport.Manual io = new TestSupport.Manual();
+        CounterStore store = new CounterStore(dir, TestSupport.LOGGER, io, new Perf());
+        for (int i = 0; i < CounterStore.OFFLINE_MAX_PLAYERS; i++) {
+            assertTrue(store.add(new UUID(7, i), "dominion:claims", 1));
+        }
+        assertFalse(store.add(new UUID(8, 0), "dominion:claims", 1), "the queue is full");
+        assertTrue(store.add(new UUID(7, 0), "dominion:claims", 1), "a player already queued still folds in");
+        assertEquals(1, io.pending());
+
+        CounterStore gone = new CounterStore(dir, TestSupport.LOGGER, task -> {
+            throw new java.util.concurrent.RejectedExecutionException();
+        }, new Perf());
+        assertFalse(gone.add(A, "dominion:claims", 1), "nothing would ever apply it");
+        assertFalse(gone.add(A, "dominion:claims", 1), "and the next write is refused too, not queued forever");
+    }
+
+    @Test
     void boardsRankEveryPlayerOnlineOrNot() throws Exception {
         CounterStore store = TestSupport.store(dir);
         store.join(A, "Alder", 1L);
