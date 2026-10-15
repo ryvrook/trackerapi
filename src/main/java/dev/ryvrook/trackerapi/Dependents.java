@@ -15,6 +15,7 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
+import java.util.concurrent.TimeUnit;
 import java.util.logging.Level;
 
 /**
@@ -25,6 +26,13 @@ import java.util.logging.Level;
  * reloaded for the owner one after another, each after the dependents it reads itself.
  */
 final class Dependents {
+    /** A dependent and the instance that was enabled when TrackerAPI started. */
+    record Dependent(PluginIdentifier id, PluginBase instance) {
+    }
+
+    /** How long a reload that finishes on a future may take before the owner is told to do it by hand. */
+    static final long SETTLE_MILLIS = 15_000;
+
     private Dependents() {
     }
 
@@ -33,9 +41,9 @@ final class Dependents {
      * comes after the others in the list that it names itself. Chronicle Stats and Dominion read Coinage,
      * so Coinage is reloaded before them and they link to its new instance too.
      */
-    static List<PluginIdentifier> enabled(PluginIdentifier self, HytaleLogger logger) {
-        List<PluginIdentifier> found = new ArrayList<>();
-        Map<String, PluginIdentifier> byKey = new HashMap<>();
+    static List<Dependent> enabled(PluginIdentifier self, HytaleLogger logger) {
+        List<Dependent> found = new ArrayList<>();
+        Map<String, Dependent> byKey = new HashMap<>();
         Map<String, Set<String>> names = new HashMap<>();
         try {
             PluginManager manager = PluginManager.get();
@@ -54,8 +62,9 @@ final class Dependents {
                     PluginIdentifier id = plugin.getIdentifier();
                     if (id != null && !id.equals(self)) {
                         String key = key(id);
-                        found.add(id);
-                        byKey.put(key, id);
+                        Dependent d = new Dependent(id, plugin);
+                        found.add(d);
+                        byKey.put(key, d);
                         Set<String> deps = new HashSet<>();
                         addKeys(manifest.getDependencies(), deps);
                         addKeys(manifest.getOptionalDependencies(), deps);
@@ -71,10 +80,10 @@ final class Dependents {
             return found;
         }
         List<String> keys = new ArrayList<>(found.size());
-        for (PluginIdentifier id : found) {
-            keys.add(key(id));
+        for (Dependent d : found) {
+            keys.add(key(d.id()));
         }
-        List<PluginIdentifier> out = new ArrayList<>(found.size());
+        List<Dependent> out = new ArrayList<>(found.size());
         for (String key : order(keys, names)) {
             out.add(byKey.get(key));
         }
@@ -139,8 +148,16 @@ final class Dependents {
         return false;
     }
 
-    /** Reloads each plugin through the plugin manager, logging one line per plugin. Returns how many succeeded. */
-    static int reload(List<PluginIdentifier> ids, HytaleLogger logger) {
+    /**
+     * Reloads each plugin through the plugin manager, logging one line per plugin. A plugin whose instance
+     * changed since TrackerAPI started was reloaded by someone else meanwhile, such as Coinage reloading its
+     * own dependents, and is left alone. The manager answers false when a plugin's preLoad future was not
+     * done yet, Feats among them, and finishes the setup and start on that future later. So a false is
+     * followed by a wait of up to {@link #SETTLE_MILLIS} for the new instance to be enabled, which also
+     * keeps the order, Dominion is not reloaded before the Feats it reads is up. Runs on the timer thread.
+     * Returns how many are linked to the new instance.
+     */
+    static int reload(List<Dependent> dependents, HytaleLogger logger) {
         int n = 0;
         PluginManager manager;
         try {
@@ -151,10 +168,16 @@ final class Dependents {
         if (manager == null) {
             return 0;
         }
-        for (PluginIdentifier id : ids) {
+        for (Dependent d : dependents) {
+            PluginIdentifier id = d.id();
             try {
+                if (replaced(manager, d)) {
+                    logger.at(Level.FINE).log("TrackerAPI leaves %s alone, it was reloaded since TrackerAPI started", id);
+                    n++;
+                    continue;
+                }
                 logger.at(Level.INFO).log("TrackerAPI was reloaded, reloading %s so it links to the new instance", id);
-                if (manager.reload(id)) {
+                if (manager.reload(id) || settled(manager, d)) {
                     n++;
                 } else {
                     logger.at(Level.WARNING).log("TrackerAPI could not reload %s, run /plugin reload %s yourself", id, id);
@@ -164,5 +187,28 @@ final class Dependents {
             }
         }
         return n;
+    }
+
+    /** Waits for a reload the manager finishes on a future. True once the new instance is enabled. */
+    private static boolean settled(PluginManager manager, Dependent d) {
+        long until = System.nanoTime() + TimeUnit.MILLISECONDS.toNanos(SETTLE_MILLIS);
+        while (!replaced(manager, d)) {
+            if (System.nanoTime() > until) {
+                return false;
+            }
+            try {
+                Thread.sleep(100);
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+                return false;
+            }
+        }
+        return true;
+    }
+
+    /** True when the manager holds a different, enabled instance of the plugin than the one seen at start. */
+    private static boolean replaced(PluginManager manager, Dependent d) {
+        PluginBase now = manager.getPlugin(d.id());
+        return now != null && now != d.instance() && now.getState() == PluginState.ENABLED;
     }
 }
