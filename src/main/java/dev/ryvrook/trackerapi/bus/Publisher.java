@@ -61,6 +61,8 @@ public final class Publisher {
     private volatile boolean closed;
     /** Per kind sync listener lists, rebuilt on change so the hot path iterates a plain array. */
     private volatile SubscriptionImpl[][] syncByKind = new SubscriptionImpl[EventKind.COUNT][];
+    /** The active async subscriptions in subscription order, rebuilt on change for the dispatcher. */
+    private volatile SubscriptionImpl[] async = new SubscriptionImpl[0];
     private final Runnable wake;
 
     public Publisher(HytaleLogger logger, Perf perf, int queueCapacity, Runnable wake) {
@@ -195,15 +197,9 @@ public final class Publisher {
         return new ArrayList<>(subscriptions);
     }
 
-    /** The async subscriptions, for the dispatcher. */
-    List<SubscriptionImpl> asyncSubscriptions() {
-        List<SubscriptionImpl> out = new ArrayList<>();
-        for (SubscriptionImpl s : subscriptions) {
-            if (s.delivery == Delivery.ASYNC && s.isActive()) {
-                out.add(s);
-            }
-        }
-        return out;
+    /** The async subscriptions, for the dispatcher. An array kept from the last change, nothing is copied. */
+    SubscriptionImpl[] asyncSubscriptions() {
+        return async;
     }
 
     public void addSink(Sink sink) {
@@ -236,6 +232,13 @@ public final class Publisher {
             wants = new byte[EventKind.COUNT];
             return;
         }
+        List<SubscriptionImpl> asyncList = new ArrayList<>();
+        for (SubscriptionImpl s : subscriptions) {
+            if (s.delivery == Delivery.ASYNC && s.isActive()) {
+                asyncList.add(s);
+            }
+        }
+        async = asyncList.toArray(new SubscriptionImpl[0]);
         byte[] next = new byte[EventKind.COUNT];
         SubscriptionImpl[][] sync = new SubscriptionImpl[EventKind.COUNT][];
         boolean[] on = tracked;
@@ -326,6 +329,7 @@ public final class Publisher {
         }
         subscriptions.clear();
         sinks.clear();
+        async = new SubscriptionImpl[0];
         wants = new byte[EventKind.COUNT];
     }
 

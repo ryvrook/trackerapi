@@ -1,11 +1,13 @@
 package dev.ryvrook.trackerapi.bus;
 
 import com.hypixel.hytale.logger.HytaleLogger;
+import dev.ryvrook.trackerapi.api.EventKind;
 import dev.ryvrook.trackerapi.api.TrackerEvent;
 import dev.ryvrook.trackerapi.util.Guard;
 import dev.ryvrook.trackerapi.util.Perf;
 
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.List;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.locks.LockSupport;
@@ -42,6 +44,8 @@ public final class Dispatcher implements Runnable {
     /** True while the thread is parked with nothing to do, the only time a publish pays for an unpark. */
     private volatile boolean idle;
     private final List<TrackerEvent> batch = new ArrayList<>(BATCH);
+    /** The kinds present in the batch being delivered, so a listener with none of them is skipped whole. */
+    private final boolean[] present = new boolean[EventKind.COUNT];
 
     public Dispatcher(Publisher publisher, HytaleLogger logger, Perf perf) {
         this.publisher = publisher;
@@ -135,7 +139,12 @@ public final class Dispatcher implements Runnable {
     }
 
     private void deliver(List<TrackerEvent> events) {
-        List<SubscriptionImpl> listeners = publisher.asyncSubscriptions();
+        SubscriptionImpl[] listeners = publisher.asyncSubscriptions();
+        boolean[] seen = present;
+        Arrays.fill(seen, false);
+        for (int i = 0, n = events.size(); i < n; i++) {
+            seen[events.get(i).kind().ordinal()] = true;
+        }
         long now = System.nanoTime();
         for (SubscriptionImpl s : listeners) {
             if (s.suspendedUntil != 0) {
@@ -144,6 +153,9 @@ public final class Dispatcher implements Runnable {
                 }
                 s.suspendedUntil = 0;
                 s.overBudget = 0;
+            }
+            if (!anyPresent(s.ordinals, seen)) {
+                continue;
             }
             long begin = System.nanoTime();
             boolean failedOnce = false;
@@ -175,5 +187,17 @@ public final class Dispatcher implements Runnable {
                 s.overBudget = 0;
             }
         }
+    }
+
+    private static boolean anyPresent(int[] ordinals, boolean[] seen) {
+        if (ordinals == null) {
+            return true;
+        }
+        for (int o : ordinals) {
+            if (seen[o]) {
+                return true;
+            }
+        }
+        return false;
     }
 }

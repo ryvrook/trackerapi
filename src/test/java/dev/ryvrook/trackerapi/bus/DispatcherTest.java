@@ -175,6 +175,6 @@ class DispatcherTest {
         drainHere(new Dispatcher(pub, TestSupport.LOGGER, perf));
         assertTrue(got.isEmpty(), "nothing reaches a listener after the bus closed");
         assertTrue(!s.isActive());
-        assertTrue(pub.asyncSubscriptions().isEmpty());
+        assertEquals(0, pub.asyncSubscriptions().length);
     }
 }

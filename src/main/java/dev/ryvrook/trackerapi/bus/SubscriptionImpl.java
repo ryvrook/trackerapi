@@ -18,6 +18,10 @@ final class SubscriptionImpl implements Subscription {
     final String owner;
     final Set<EventKind> kinds;
     final Delivery delivery;
+    /** The kinds by ordinal, a plain array read on the dispatch path. Null for every kind. */
+    private final boolean[] mask;
+    /** The ordinals of the kinds, so the dispatcher can skip a batch holding none of them. Null for every kind. */
+    final int[] ordinals;
     private final Consumer<TrackerEvent> listener;
     private final Runnable onClose;
     private volatile boolean active = true;
@@ -37,10 +41,22 @@ final class SubscriptionImpl implements Subscription {
         this.delivery = delivery;
         this.listener = listener;
         this.onClose = onClose;
+        if (kinds == null) {
+            mask = null;
+            ordinals = null;
+        } else {
+            mask = new boolean[EventKind.COUNT];
+            ordinals = new int[kinds.size()];
+            int i = 0;
+            for (EventKind k : kinds) {
+                mask[k.ordinal()] = true;
+                ordinals[i++] = k.ordinal();
+            }
+        }
     }
 
     boolean wants(EventKind kind) {
-        return kinds == null || kinds.contains(kind);
+        return mask == null || mask[kind.ordinal()];
     }
 
     /** Calls the listener. True when it threw. */
