@@ -1,12 +1,12 @@
 package dev.ryvrook.trackerapi.counters;
 
 import com.hypixel.hytale.logger.HytaleLogger;
-import dev.ryvrook.trackerapi.api.Keys;
 
 import java.util.AbstractMap;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.HashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -16,7 +16,8 @@ import java.util.logging.Level;
 
 /**
  * Leaderboards over every player file, rebuilt on the IO thread every {@code boardSeconds}. Every total
- * is kept, plus any key another plugin asked for with {@link #watch}. A build reads every file once, so
+ * is kept, plus any key another plugin asked for with {@link #watch}, such as {@code dominion:claims}.
+ * Per world copies and per id keys get a board only when watched. A build reads every file once, so
  * it is bounded by the player count, about a millisecond per hundred files.
  */
 public final class Boards {
@@ -63,11 +64,9 @@ public final class Boards {
     /** IO thread. Reads every file and sorts. */
     public void rebuild() {
         try {
-            List<UUID> uuids = store.filesOnDisk();
+            Set<UUID> uuids = new LinkedHashSet<>(store.filesOnDisk());
             for (PlayerCounters pc : store.loadedPlayers()) {
-                if (!uuids.contains(pc.uuid())) {
-                    uuids.add(pc.uuid());
-                }
+                uuids.add(pc.uuid());
             }
             Map<String, List<Map.Entry<UUID, Long>>> next = new HashMap<>();
             for (UUID uuid : uuids) {
@@ -99,10 +98,5 @@ public final class Boards {
         } catch (RuntimeException e) {
             logger.at(Level.WARNING).withCause(e).log("TrackerAPI could not rebuild the leaderboards");
         }
-    }
-
-    /** Keys that always get a board. */
-    static boolean alwaysBoard(String key) {
-        return key.indexOf(':') < 0 || key.startsWith(Keys.P_WORLD + ':');
     }
 }

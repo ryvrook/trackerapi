@@ -18,7 +18,8 @@ import java.util.concurrent.CompletableFuture;
  * empty.
  *
  * <p>Other plugins may add counters of their own under their own prefix with {@link #add}, for example
- * {@code feats:points}. They are saved with everything else and never touched by TrackerAPI.
+ * {@code coinage:earned:gold} or {@code dominion:claims}. They are saved with everything else, never
+ * touched by TrackerAPI, and get a leaderboard once a plugin asks for one with {@link #watchBoard}.
  */
 public interface Counters {
 
@@ -50,13 +51,20 @@ public interface Counters {
     Map<String, Long> serverAll();
 
     /**
-     * Adds to a counter of another plugin for an online player. The key must start with the plugin's
-     * own prefix and a colon, such as {@code feats:}, and never with a TrackerAPI prefix. Returns false
-     * when the player is not loaded or the key is reserved.
+     * Adds to a counter of another plugin. The key must start with the plugin's own prefix and a colon,
+     * such as {@code feats:}, and never with a TrackerAPI prefix, see {@link Keys#isExternal}. The amount
+     * also goes into the server total of the key. An online player is written in memory at once. For an
+     * offline player the write is queued and applied to their file on the {@code TrackerAPI-io} thread a
+     * moment later, and dropped there when TrackerAPI has no file for them. Returns false when the key is
+     * not allowed or TrackerAPI is stopping.
      */
     boolean add(UUID player, String key, long amount);
 
-    /** Sets such a counter to the larger of its value and {@code value}. Same rules as {@link #add}. */
+    /**
+     * Sets such a counter to the larger of its value and {@code value}, for a best such as a longest
+     * siege. Same rules as {@link #add}. A key written this way keeps the larger value when the player's
+     * file is read back on a join.
+     */
     boolean raiseTo(UUID player, String key, long value);
 
     /**

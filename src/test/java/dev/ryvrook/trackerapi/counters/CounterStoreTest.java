@@ -212,8 +212,66 @@ class CounterStoreTest {
         assertFalse(store.add(A, Keys.KILLS, 1), "a total belongs to TrackerAPI");
         assertFalse(store.add(A, "kill:Goblin", 1), "so does a reserved prefix");
         assertFalse(store.add(A, "feats:points", 0));
-        assertFalse(store.add(B, "feats:points", 1), "an offline player cannot be written");
         assertFalse(store.raiseTo(A, "world:x:kills", 1));
+        assertFalse(store.add(null, "feats:points", 1));
+        assertEquals(5, store.server("feats:points"), "plugin keys feed the server totals too");
+    }
+
+    @Test
+    void anOfflinePlayerGetsPluginCountersInTheirFile() throws Exception {
+        CounterStore store = TestSupport.store(dir);
+        store.join(A, "Alder", 1L);
+        store.add(A, "dominion:sieges_won", 2);
+        store.leave(A);
+
+        assertTrue(store.add(A, "dominion:sieges_won", 1), "queued for the file");
+        assertTrue(store.raiseTo(A, "dominion:longest_siege", 40));
+        assertTrue(store.raiseTo(A, "dominion:longest_siege", 15));
+        JsonObject counters = JsonFiles.read(store.fileOf(A)).getAsJsonObject("counters");
+        assertEquals(3, counters.get("dominion:sieges_won").getAsLong());
+        assertEquals(40, counters.get("dominion:longest_siege").getAsLong());
+        assertEquals(3, store.server("dominion:sieges_won"));
+        store.watchBoard("dominion:sieges_won");
+        store.boards().rebuild();
+        assertEquals(List.of(Map.entry(A, 3L)), List.copyOf(store.top("dominion:sieges_won", 5)));
+
+        assertTrue(store.add(B, "coinage:earned:gold", 7), "accepted, then dropped on IO");
+        assertFalse(Files.exists(store.fileOf(B)), "no file is made for a player TrackerAPI never saw");
+    }
+
+    @Test
+    void offlineWritesWaitingOnIoReachAPlayerWhoJoinsMeanwhile() throws Exception {
+        CounterStore seed = TestSupport.store(dir);
+        seed.join(A, "Alder", 1L);
+        seed.add(A, "coinage:earned:gold", 100);
+        seed.leave(A);
+
+        TestSupport.Manual io = new TestSupport.Manual();
+        CounterStore store = new CounterStore(dir, TestSupport.LOGGER, io, new Perf());
+        assertTrue(store.add(A, "coinage:earned:gold", 5));
+        assertTrue(store.add(A, "coinage:earned:gold", 6));
+        assertEquals(1, io.pending(), "one IO pass for every queued write");
+        store.join(A, "Alder", 2L); // its file read queues behind the pass
+        io.runAll();
+        assertEquals(111, store.get(A, "coinage:earned:gold"));
+    }
+
+    @Test
+    void aPluginBestRaisedBeforeTheFileReadIsNotSummed() {
+        CounterStore seed = TestSupport.store(dir);
+        seed.join(A, "Alder", 1L);
+        seed.raiseTo(A, "dominion:longest_siege", 50);
+        seed.add(A, "dominion:claims", 4);
+        seed.leave(A);
+
+        TestSupport.Manual io = new TestSupport.Manual();
+        CounterStore store = new CounterStore(dir, TestSupport.LOGGER, io, new Perf());
+        store.join(A, "Alder", 2L);
+        store.raiseTo(A, "dominion:longest_siege", 30);
+        store.add(A, "dominion:claims", 1);
+        io.runAll();
+        assertEquals(50, store.get(A, "dominion:longest_siege"));
+        assertEquals(5, store.get(A, "dominion:claims"));
     }
 
     @Test

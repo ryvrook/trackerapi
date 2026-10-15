@@ -6,7 +6,9 @@ import com.google.gson.JsonPrimitive;
 import dev.ryvrook.trackerapi.api.Keys;
 
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.Map;
+import java.util.Set;
 import java.util.UUID;
 
 /**
@@ -30,6 +32,8 @@ public final class PlayerCounters {
     private boolean dirty;
     /** Set while the file read that fills this object has not finished, so writes queue in memory first. */
     private volatile boolean merged = true;
+    /** Keys that are not TrackerAPI bests but were raised before the merge, see {@link #raiseTo}. */
+    private Set<String> raisedEarly;
 
     public PlayerCounters(UUID uuid, String name, long now) {
         this.uuid = uuid;
@@ -93,6 +97,13 @@ public final class PlayerCounters {
     }
 
     public synchronized void raiseTo(String key, long value) {
+        if (!merged && !CounterRules.isMax(key)) {
+            // A plugin key raised before the file read landed, so the merge keeps the larger, not the sum.
+            if (raisedEarly == null) {
+                raisedEarly = new HashSet<>(4);
+            }
+            raisedEarly.add(key);
+        }
         long[] slot = counters.get(key);
         if (slot == null) {
             counters.put(key, new long[]{value});
@@ -192,7 +203,7 @@ public final class PlayerCounters {
                 String key = e.getKey();
                 // Bests and firsts are not sums.
                 String prefix = Keys.prefixOf(key);
-                if (CounterRules.isMax(key)) {
+                if (CounterRules.isMax(key) || (raisedEarly != null && raisedEarly.contains(key))) {
                     slot[0] = Math.max(slot[0], e.getValue()[0]);
                 } else if (!prefix.equals(key) && CounterRules.isDiscovery(prefix)) {
                     if (slot[0] > 0 && e.getValue()[0] > 0) {
@@ -220,6 +231,7 @@ public final class PlayerCounters {
         if (imported == null && disk.imported != null) {
             imported = disk.imported;
         }
+        raisedEarly = null;
         dirty = true;
         merged = true;
     }

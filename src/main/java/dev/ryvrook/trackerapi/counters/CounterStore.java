@@ -54,6 +54,12 @@ public final class CounterStore implements Counters {
     private final Object lifecycle = new Object();
     private volatile boolean perWorld = true;
     private volatile boolean stopped;
+    /** Writes of other plugins for offline players, waiting for the IO pass. Guarded by {@code offlineLock}. */
+    private final Map<UUID, List<OfflineWrite>> offline = new HashMap<>();
+    private final Object offlineLock = new Object();
+    private boolean offlineQueued;
+    /** Past this many offline players waiting for a write, further writes are refused until IO caught up. */
+    static final int OFFLINE_MAX_PLAYERS = 10_000;
 
     public CounterStore(Path root, HytaleLogger logger, Executor io, Perf perf) {
         this.root = root;
@@ -435,28 +441,113 @@ public final class CounterStore implements Counters {
 
     @Override
     public boolean add(UUID player, String key, long amount) {
-        if (!Keys.isExternal(key) || amount == 0) {
+        if (player == null || !Keys.isExternal(key) || amount == 0) {
             return false;
         }
         PlayerCounters pc = live(player);
         if (pc == null) {
-            return false;
+            return queueOffline(player, key, amount, false);
         }
         pc.add(key, amount);
+        server.add(key, amount);
         return true;
     }
 
     @Override
     public boolean raiseTo(UUID player, String key, long value) {
-        if (!Keys.isExternal(key)) {
+        if (player == null || !Keys.isExternal(key)) {
             return false;
         }
         PlayerCounters pc = live(player);
         if (pc == null) {
-            return false;
+            return queueOffline(player, key, value, true);
         }
         pc.raiseTo(key, value);
+        server.raiseTo(key, value);
         return true;
+    }
+
+    // ---- writes of other plugins for players who are offline ----------------------------------------------
+
+    /** One write another plugin made for an offline player, a sum or a raise. */
+    private record OfflineWrite(String key, long value, boolean raise) {
+    }
+
+    /**
+     * Queues a write for a player who is not online. The writes gather here and one task on IO applies all
+     * of them, so a siege that credits fifty members costs one pass over fifty files, not fifty tasks.
+     */
+    private boolean queueOffline(UUID player, String key, long value, boolean raise) {
+        if (stopped) {
+            return false;
+        }
+        boolean schedule;
+        synchronized (offlineLock) {
+            List<OfflineWrite> writes = offline.get(player);
+            if (writes == null) {
+                if (offline.size() >= OFFLINE_MAX_PLAYERS) {
+                    return false;
+                }
+                writes = new ArrayList<>(2);
+                offline.put(player, writes);
+            }
+            writes.add(new OfflineWrite(key, value, raise));
+            schedule = !offlineQueued;
+            offlineQueued = true;
+        }
+        if (schedule) {
+            runIo(this::flushOffline);
+        }
+        return true;
+    }
+
+    /**
+     * IO thread. Applies the queued writes. A player who came online meanwhile gets them in memory, a player
+     * whose leave is still saving gets them on that object before its save runs, which is queued behind this
+     * task on the same thread, and anyone else gets them in their file. A join that races this pass reads
+     * the file after it, since its read is queued on IO too. A player without a file is skipped.
+     */
+    void flushOffline() {
+        Map<UUID, List<OfflineWrite>> batch;
+        synchronized (offlineLock) {
+            batch = new HashMap<>(offline);
+            offline.clear();
+            offlineQueued = false;
+        }
+        int skipped = 0;
+        for (Map.Entry<UUID, List<OfflineWrite>> e : batch.entrySet()) {
+            UUID uuid = e.getKey();
+            PlayerCounters target = live(uuid);
+            if (target == null) {
+                target = unloading.get(uuid);
+            }
+            if (target != null) {
+                apply(target, e.getValue());
+                continue;
+            }
+            PlayerCounters disk = readFile(uuid);
+            if (disk == null) {
+                skipped++;
+                continue;
+            }
+            apply(disk, e.getValue());
+            save(disk);
+        }
+        if (skipped > 0) {
+            logger.at(Level.FINE).log("TrackerAPI dropped counters of other plugins for %d offline players it has no file for", skipped);
+        }
+    }
+
+    private void apply(PlayerCounters pc, List<OfflineWrite> writes) {
+        for (OfflineWrite w : writes) {
+            if (w.raise()) {
+                pc.raiseTo(w.key(), w.value());
+                server.raiseTo(w.key(), w.value());
+            } else {
+                pc.add(w.key(), w.value());
+                server.add(w.key(), w.value());
+            }
+        }
     }
 
     @Override
