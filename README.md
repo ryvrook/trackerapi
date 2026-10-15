@@ -133,9 +133,9 @@ by default, and `journal.maxMegabytes` caps the rest.
 
 ## Limits
 
-- No player has played on a TrackerAPI server yet. The player driven kinds have unit tests over synthetic
-  records and engine reads ported from Feats and Chronicle, which do run live, but the real ordering of damage
-  amounts, projectile hits, equip and break events and first join timing is only confirmed once someone plays.
+- The headless smoke test has no players, so it cannot show anything player driven. TrackerAPI runs on my own
+  server beside Feats, Chronicle Stats and Atlas, which is where 1.0.0 crashed a world within a minute of players
+  joining (fixed in 1.0.1). The volume of the high volume kinds on a big server is still unmeasured.
 - `PREFAB_PASTED` is in the API and never published. Worldgen pastes prefabs from its own threads and hooking
   that event crashes the world. Chunk unloads come from the chunk store callback for the same reason.
 - TrackerAPI only observes. It never cancels or changes an event.
