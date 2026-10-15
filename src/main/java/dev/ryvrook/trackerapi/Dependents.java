@@ -8,8 +8,13 @@ import com.hypixel.hytale.server.core.plugin.PluginManager;
 import com.hypixel.hytale.server.core.plugin.PluginState;
 
 import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.HashSet;
+import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
+import java.util.Set;
 import java.util.logging.Level;
 
 /**
@@ -17,19 +22,25 @@ import java.util.logging.Level;
  * linked api classes belong to the old instance, so they count nothing until they are reloaded. On a
  * fresh boot none of them is enabled yet when TrackerAPI starts, because the dependency orders the load,
  * so an enabled dependent at start time means TrackerAPI itself was reloaded and the dependents are
- * reloaded for the owner, in load order, one after another.
+ * reloaded for the owner one after another, each after the dependents it reads itself.
  */
 final class Dependents {
     private Dependents() {
     }
 
-    /** The enabled plugins whose manifest names {@code self} under its dependencies. */
-    static List<PluginIdentifier> enabled(PluginIdentifier self) {
-        List<PluginIdentifier> out = new ArrayList<>();
+    /**
+     * The enabled plugins whose manifest names {@code self} under its dependencies, ordered so a plugin
+     * comes after the others in the list that it names itself. Chronicle Stats and Dominion read Coinage,
+     * so Coinage is reloaded before them and they link to its new instance too.
+     */
+    static List<PluginIdentifier> enabled(PluginIdentifier self, HytaleLogger logger) {
+        List<PluginIdentifier> found = new ArrayList<>();
+        Map<String, PluginIdentifier> byKey = new HashMap<>();
+        Map<String, Set<String>> names = new HashMap<>();
         try {
             PluginManager manager = PluginManager.get();
             if (manager == null || self == null) {
-                return out;
+                return found;
             }
             for (PluginBase plugin : manager.getPlugins()) {
                 try {
@@ -42,16 +53,74 @@ final class Dependents {
                     }
                     PluginIdentifier id = plugin.getIdentifier();
                     if (id != null && !id.equals(self)) {
-                        out.add(id);
+                        String key = key(id);
+                        found.add(id);
+                        byKey.put(key, id);
+                        Set<String> deps = new HashSet<>();
+                        addKeys(manifest.getDependencies(), deps);
+                        addKeys(manifest.getOptionalDependencies(), deps);
+                        names.put(key, deps);
                     }
-                } catch (RuntimeException | LinkageError ignored) {
+                } catch (RuntimeException | LinkageError e) {
                     // one odd plugin never stops the walk
+                    logger.at(Level.FINE).withCause(e).log("TrackerAPI skipped a plugin it could not read while looking for dependents");
                 }
             }
-        } catch (RuntimeException | LinkageError ignored) {
-            // no plugin manager, nothing to reload
+        } catch (RuntimeException | LinkageError e) {
+            logger.at(Level.FINE).withCause(e).log("TrackerAPI could not list the plugins to find its dependents");
+            return found;
+        }
+        List<String> keys = new ArrayList<>(found.size());
+        for (PluginIdentifier id : found) {
+            keys.add(key(id));
+        }
+        List<PluginIdentifier> out = new ArrayList<>(found.size());
+        for (String key : order(keys, names)) {
+            out.add(byKey.get(key));
         }
         return out;
+    }
+
+    /**
+     * Orders the keys so each comes after every other key in the list it depends on, and otherwise keeps
+     * the given order, which is the load order. A cycle is broken at the first key reached again.
+     */
+    static List<String> order(List<String> keys, Map<String, Set<String>> deps) {
+        Set<String> visiting = new HashSet<>();
+        Set<String> done = new LinkedHashSet<>();
+        for (String key : keys) {
+            visit(key, keys, deps, visiting, done);
+        }
+        return new ArrayList<>(done);
+    }
+
+    private static void visit(String key, List<String> keys, Map<String, Set<String>> deps, Set<String> visiting,
+                              Set<String> done) {
+        if (done.contains(key) || !visiting.add(key)) {
+            return;
+        }
+        Set<String> mine = deps.getOrDefault(key, Set.of());
+        for (String other : keys) {
+            if (mine.contains(other)) {
+                visit(other, keys, deps, visiting, done);
+            }
+        }
+        visiting.remove(key);
+        done.add(key);
+    }
+
+    private static String key(PluginIdentifier id) {
+        return (id.getGroup() + ":" + id.getName()).toLowerCase(Locale.ROOT);
+    }
+
+    private static void addKeys(Map<PluginIdentifier, ?> deps, Set<String> into) {
+        if (deps != null) {
+            for (PluginIdentifier id : deps.keySet()) {
+                if (id != null) {
+                    into.add(key(id));
+                }
+            }
+        }
     }
 
     private static boolean dependsOn(PluginManifest manifest, PluginIdentifier self) {

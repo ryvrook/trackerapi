@@ -168,7 +168,7 @@ public final class TrackerApiPlugin extends JavaPlugin {
      * On a fresh boot no dependent is enabled yet and nothing happens.
      */
     private void reloadDependentsAfterReload() {
-        java.util.List<com.hypixel.hytale.common.plugin.PluginIdentifier> dependents = Dependents.enabled(getIdentifier());
+        java.util.List<com.hypixel.hytale.common.plugin.PluginIdentifier> dependents = Dependents.enabled(getIdentifier(), getLogger());
         if (dependents.isEmpty()) {
             return;
         }
