@@ -3,7 +3,7 @@ plugins {
 }
 
 group = "dev.ryvrook"
-version = "1.0.3"
+version = "1.1.0"
 
 java {
     toolchain {
