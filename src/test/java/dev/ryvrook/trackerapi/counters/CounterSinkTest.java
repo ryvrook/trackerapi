@@ -125,6 +125,69 @@ class CounterSinkTest {
     }
 
     @Test
+    void plantingASeedCountsTheBlockPlacedAndTheCrop() {
+        accept(new BlockPlaced(h(P), 0, 64, 0, "Plant_Seeds_Carrot", "Plant_Crop_Carrot_Block", false, false, true));
+        accept(new BlockPlaced(h(P), 1, 64, 0, "Plant_Seeds_Carrot", "Plant_Crop_Carrot_Block", false, false, true));
+        accept(new BlockPlaced(h(P), 2, 64, 0, "Plant_Seeds_Oak", "Plant_Sapling_Oak", false, false, true));
+        assertEquals(3, c(Keys.BLOCK_PLACED));
+        assertEquals(2, c("block_placed:Plant_Seeds_Carrot"), "block_placed keeps the item in hand");
+        assertEquals(3, c(Keys.CROPS_PLANTED));
+        assertEquals(2, c("crops_planted:Plant_Crop_Carrot_Block"), "crops_planted names the crop");
+        assertEquals(1, c("crops_planted:Plant_Sapling_Oak"));
+        assertEquals(3, store.server(Keys.CROPS_PLANTED));
+    }
+
+    @Test
+    void aRepeatPlantingCountsNothing() {
+        accept(new BlockPlaced(h(P), 0, 64, 0, "Plant_Seeds_Carrot", "Plant_Crop_Carrot_Block", true, false, true));
+        assertEquals(0, c(Keys.BLOCK_PLACED));
+        assertEquals(0, c(Keys.CROPS_PLANTED));
+    }
+
+    @Test
+    void anOrdinaryBlockIsNoPlanting() {
+        accept(new BlockPlaced(h(P), 0, 64, 0, "Wood_Oak_Planks", "Wood_Oak_Planks", false, false));
+        accept(new BlockPlaced(h(P), 1, 64, 0, "Plant_Crop_Carrot_Item", "Plant_Crop_Carrot_Item", false, false));
+        assertEquals(2, c(Keys.BLOCK_PLACED));
+        assertEquals(0, c(Keys.CROPS_PLANTED), "a carrot set down as a block is decoration");
+    }
+
+    @Test
+    void aRipeCropCountsAsAHarvestEvenOnTheOwnPlot() {
+        String ripe = "*Plant_Crop_Carrot_Block_State_Definitions_StageFinal";
+        accept(new BlockBroken(h(P), 0, 64, 0, ripe, null, true, false, true));
+        accept(new BlockBroken(h(P), 1, 64, 0, ripe, null, false, false, true));
+        assertEquals(2, c(Keys.CROPS_HARVESTED));
+        assertEquals(2, c("crops_harvested:Plant_Crop_Carrot_Block"), "the stage is cut off the id");
+        assertEquals(1, c(Keys.BLOCK_BROKEN), "block_broken keeps the own plot rule");
+        assertEquals(1, c("block_broken:" + ripe));
+    }
+
+    @Test
+    void anUnripeCropIsNoHarvest() {
+        accept(new BlockBroken(h(P), 0, 64, 0, "*Plant_Crop_Carrot_Block_State_Definitions_Stage1", null, true, false,
+                false));
+        assertEquals(0, c(Keys.CROPS_HARVESTED));
+        assertEquals(0, c(Keys.BLOCK_BROKEN));
+    }
+
+    @Test
+    void creativeCropsFollowTheCreativeSwitch() {
+        sink.setCountCreative(false);
+        accept(new BlockPlaced(h(P), 0, 64, 0, "Plant_Seeds_Carrot", "Plant_Crop_Carrot_Block", false, true, true));
+        accept(new BlockBroken(h(P), 0, 64, 0, "*Plant_Crop_Carrot_Block_State_Definitions_StageFinal", null, true,
+                true, true));
+        assertEquals(0, c(Keys.CROPS_PLANTED));
+        assertEquals(0, c(Keys.CROPS_HARVESTED));
+    }
+
+    @Test
+    void cropPrefixesAreReserved() {
+        assertFalse(Keys.isExternal("crops_planted:Plant_Crop_Carrot_Block"));
+        assertFalse(Keys.isExternal("crops_harvested:Plant_Crop_Carrot_Block"));
+    }
+
+    @Test
     void repeatPlacementCountsNothing() {
         accept(new BlockPlaced(h(P), 0, 0, 0, "Wood_Oak_Planks", "Wood_Oak_Planks", false, false));
         accept(new BlockPlaced(h(P), 0, 0, 0, "Wood_Oak_Planks", "Wood_Oak_Planks", true, false));

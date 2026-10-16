@@ -9,8 +9,9 @@ import java.util.concurrent.ConcurrentHashMap;
 /**
  * Remembers the last few hundred block positions each player placed, per world, ported from Feats.
  * Breaking one of those blocks again, or placing a block on one of those spots again, is flagged so a
- * single block placed and broken over and over cannot farm the block counters. Safe from any thread,
- * each player's ring is guarded by itself.
+ * single block placed and broken over and over cannot farm the block counters. The block hooks keep a
+ * second ring of the spots where a player broke an unripe crop, which is the seed farm, through
+ * {@link #place} and {@link #release}. Safe from any thread, each player's ring is guarded by itself.
  */
 public final class PlacedBlocks {
     /** Spots remembered per player, the oldest falls off first. */
@@ -42,6 +43,20 @@ public final class PlacedBlocks {
             boolean fresh = spots.remove(spot) == null;
             spots.put(spot, Boolean.TRUE); // newest last, the oldest falls off the front
             return fresh;
+        }
+    }
+
+    /** Forgets one spot of the player's and returns true when it was remembered. */
+    public boolean release(UUID uuid, String world, int x, int y, int z) {
+        if (uuid == null) {
+            return false;
+        }
+        Map<Spot, Boolean> spots = recent.get(uuid);
+        if (spots == null) {
+            return false;
+        }
+        synchronized (spots) {
+            return spots.remove(new Spot(world, x, y, z)) != null;
         }
     }
 

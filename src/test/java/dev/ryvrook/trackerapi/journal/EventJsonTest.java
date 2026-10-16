@@ -25,7 +25,8 @@ class EventJsonTest {
         BlockBroken e = new BlockBroken(new Header(1000L, 7L, "default", A), 1, 2, 3, "Rock_Stone", null, true, false);
         JsonObject o = EventJson.toJson(e);
         List<String> keys = List.copyOf(o.keySet());
-        assertEquals(List.of("kind", "at", "seq", "world", "player", "x", "y", "z", "blockId", "playerPlaced", "creative"), keys);
+        assertEquals(List.of("kind", "at", "seq", "world", "player", "x", "y", "z", "blockId", "playerPlaced", "creative", "ripeCrop"),
+                keys, "a component added later goes at the end");
         assertEquals("block_broken", o.get("kind").getAsString());
         assertEquals(1000L, o.get("at").getAsLong());
         assertEquals(7L, o.get("seq").getAsLong());

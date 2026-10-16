@@ -20,8 +20,8 @@ The server artifact comes from `maven.hytale.com` as `compileOnly`, with the cha
 | `api.event` | One record per kind, 62 of them. Plain values only, never engine objects. |
 | `bus` | `Publisher` (the want flags, sequence numbers, sinks, sync delivery with suspension), `MpmcQueue` (bounded lock free, Vyukov), `Dispatcher` (the async thread, batches of 512, a listener with none of its kinds in a batch is skipped whole and that batch neither adds to nor resets its run over budget, budget per listener, suspension after 20 batches over budget), `SubscriptionImpl`. |
 | `counters` | `CounterStore` (online players in memory, files on IO, join and leave, autosave), `PlayerCounters`, `ServerCounters`, `NamesIndex`, `Boards`, `CounterSink` (the rulebook that turns events into keys), `CounterRules` (which keys are bests). |
-| `facts` | What the hooks compute once so every consumer sees the same numbers. `PlayerRegistry`, `Sampler`, `MovementSampler`, `MoveBits`, `PlacedBlocks`, `RecentPlacements`, `RecentDrops`, `RecentStash`, `RecentContainers`, `BossLedger`, `Bosses`, `TameWatch`, `KillStreaks`, `WorldTasks`, `Forgetting`. |
-| `hooks` | `HookSet`, `Registrar` (guarded registration with straggler cleanup), `Hooks` (the install order), `PlayerEventSystem` and the five sets `PlayerHooks`, `BlockHooks`, `ItemHooks` with `InventoryHook`, `CombatHooks` (subpackage `combat`), `WorldHooks` (subpackage `world`), plus `MovementEdgeSystem`. |
+| `facts` | What the hooks compute once so every consumer sees the same numbers. `PlayerRegistry`, `Sampler`, `MovementSampler`, `MoveBits`, `PlacedBlocks`, `Crops`, `RecentPlacements`, `RecentDrops`, `RecentStash`, `RecentContainers`, `BossLedger`, `Bosses`, `TameWatch`, `KillStreaks`, `WorldTasks`, `Forgetting`. |
+| `hooks` | `HookSet`, `Registrar` (guarded registration with straggler cleanup), `Hooks` (the install order), `PlayerEventSystem` and the five sets `PlayerHooks`, `BlockHooks`, `ItemHooks` with `InventoryHook`, `CombatHooks` (subpackage `combat`), `WorldHooks` (subpackage `world`), plus `MovementEdgeSystem` and `FarmBlocks` (the seed and crop reads). |
 | `journal` | `FileJournal`, `EventJson`, `JournalService`. |
 | `imports` | `Importer`, `FeatsImport`, `ChronicleImport`, `ImportState`. |
 | `command` | `TrackerCommand` and `RecentRing`. |
@@ -51,6 +51,12 @@ Every hook does `if (!publisher.wants(kind)) return;` before it reads the engine
 Cancelled engine events are never published. Creative is published with a flag on the block events, and the counter sink skips Creative unless `countCreative` is on.
 
 Every handler body is guarded. A failure is logged at most once a minute through `Guard.failed` and the cost lands in the `Perf` slot of its kind. `/trackerapi perf` prints the slots with a verdict (fine under 300 ms per minute on engine threads, watch to 1,500, too costly past that, and watch when one call took over 20 ms).
+
+## Crops
+
+Planting goes through `PlaceBlockInteraction` and `BlockPlaceUtils.placeBlock` like any block, which fires `PlaceBlockEvent` with the seed bag in hand. The seed item has no block type, so `getBlockKey()` is null, and the crop only appears in the `PlaceBlock` interaction of the item's `SeedId` var (`Seed_Place` with `BlockTypeToPlace`). `FarmBlocks.placedBy` walks `Item.getInteractionVars()` to that interaction and reads the block index from its packet, once per item id. A headless 0.7.1 run on 2026-10-16 resolved `Plant_Seeds_Carrot` to `Plant_Crop_Carrot_Block`, `Plant_Seeds_Fir` to `Plant_Sapling_Spruce` and the stage `*Plant_Crop_Carrot_Block_State_Definitions_StageFinal` to ripe. Tilled soil has farming data without stages and is not a crop.
+
+The F key harvest of a ripe vegetable is `BreakBlock` with `Harvest: true`, which runs `BlockHarvestUtils.performPickupByInteraction` and fires `BreakBlockEvent` with no item in hand, then `InteractivelyPickupItemEvent` for each drop. A sickle and a berry bush use `HarvestCrop`, which calls `FarmingUtil.harvest` and changes the block with `BlockOperations.setBlock`, no block event at all. Tilling is a `ChangeBlock` interaction (`Hoe_Till`) that also only calls `setBlock`, so the only trace is `INTERACTION_STARTED` with root `Hoe_Till`, which fires on every swing whether or not soil changed.
 
 ## Data folder
 

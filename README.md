@@ -12,9 +12,9 @@ Hytale server 0.7.0 release or newer, tested on 0.7.1, and Java 25. No client mo
 
 ## Install
 
-Put `TrackerAPI-1.1.0.jar` in the server's `mods` folder and start the server, or run
+Put `TrackerAPI-1.1.1.jar` in the server's `mods` folder and start the server, or run
 `/plugin load Ryvrook:TrackerAPI`. The log should say
-`TrackerAPI 1.1.0 set up, 53 hooks registered, 0 unsupported, 62 kinds tracked, journal on`. Settings go to
+`TrackerAPI 1.1.1 set up, 53 hooks registered, 0 unsupported, 62 kinds tracked, journal on`. Settings go to
 `mods/Ryvrook_TrackerAPI/TrackerAPI.json`.
 
 On first boot it reads the Feats and Chronicle Stats player files it finds next door and seeds its counters
@@ -113,7 +113,8 @@ fields, so use the accessors and keep a default branch when you switch on the ki
 `EventKind` enum, one record each under `dev.ryvrook.trackerapi.api.event`.
 
 Counter keys follow `Keys`. A total is `block_broken`, a per id count is `block_broken:Rock_Stone` or
-`kill:Goblin_Scrapper`, a per world copy is `world:default:block_broken`. You can write your own keys under your
+`kill:Goblin_Scrapper`, a per world copy is `world:default:block_broken`. Farming has `crops_planted` and
+`crops_harvested`, each with a per crop count such as `crops_planted:Plant_Crop_Carrot_Block`. You can write your own keys under your
 plugin's prefix, such as `myplugin:points`. A write for an offline player lands in their file on the IO thread a
 moment later. `counters().watchBoard(key)` gives you a leaderboard for it.
 

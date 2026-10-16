@@ -45,6 +45,8 @@ public final class BlockHooks implements HookSet {
 
     private final Services s;
     private final PlacedBlocks placed = new PlacedBlocks();
+    /** Spots where the player broke an unripe crop, which makes the next planting there a repeat. */
+    private final PlacedBlocks unripe = new PlacedBlocks();
     private final RecentPlacements placements = new RecentPlacements();
     private final RecentContainers containers = new RecentContainers();
 
@@ -74,6 +76,7 @@ public final class BlockHooks implements HookSet {
     @Override
     public void install(PluginBase plugin, Services services, Registrar registrar) {
         placed.registerWith(services.forgetting);
+        unripe.registerWith(services.forgetting);
         placements.registerWith(services.forgetting);
         containers.registerWith(services.forgetting);
         registrar.entitySystem("block broken", () -> new BreakSystem(this));
@@ -103,14 +106,40 @@ public final class BlockHooks implements HookSet {
         return type != null ? type.getId() : null;
     }
 
+    /**
+     * Notes a crop broken before it was ripe, whose seed drops back and could be planted again on the spot.
+     * A ripe crop and any other block leave the spot alone.
+     */
+    static void cropBroken(PlacedBlocks unripe, UUID uuid, String world, int x, int y, int z, boolean farming,
+                           boolean ripe) {
+        if (farming && !ripe) {
+            unripe.place(uuid, world, x, y, z);
+        }
+    }
+
+    /**
+     * The repeat flag of a placement. A planting is a repeat when the player broke an unripe crop on the spot
+     * since, and takes the note away. Any other block is a repeat when the spot was already in the player's
+     * ring, which {@code fresh} answers.
+     */
+    static boolean repeatSpot(PlacedBlocks unripe, UUID uuid, String world, int x, int y, int z, boolean planted,
+                              boolean fresh) {
+        return planted ? unripe.release(uuid, world, x, y, z) : !fresh;
+    }
+
     // ---- BLOCK_BROKEN -----------------------------------------------------------------------------------
 
-    /** {@code BreakBlockEvent} on players. The Empty id fires on placement and is skipped. */
-    static final class BreakSystem extends PlayerEventSystem<BreakBlockEvent> {
+    /**
+     * {@code BreakBlockEvent} on players. The Empty id fires on placement and is skipped. The F key harvest
+     * of a ripe crop comes through here too, from {@code BlockHarvestUtils.performPickupByInteraction} with
+     * no item in hand [javap 0.7.1]. Breaking an unripe crop drops its seed, so the spot is noted and the
+     * next planting there is a repeat.
+     */
+    static final class BreakSystem extends AnyKindPlayerSystem<BreakBlockEvent> {
         private final BlockHooks h;
 
         BreakSystem(BlockHooks hooks) {
-            super(BreakBlockEvent.class, EventKind.BLOCK_BROKEN, hooks.s);
+            super(BreakBlockEvent.class, hooks.s, EventKind.BLOCK_BROKEN, EventKind.BLOCK_PLACED);
             this.h = hooks;
         }
 
@@ -129,9 +158,16 @@ public final class BlockHooks implements HookSet {
                 return;
             }
             String world = worldName(store);
+            BlockType type = event.getBlockType();
+            boolean farming = FarmBlocks.farming(type);
+            boolean ripe = farming && FarmBlocks.ripe(type);
+            cropBroken(h.unripe, uuid, world, pos.x, pos.y, pos.z, farming, ripe);
+            if (!s.publisher.wants(EventKind.BLOCK_BROKEN)) {
+                return;
+            }
             boolean own = h.placed.placedHere(uuid, world, pos.x, pos.y, pos.z);
             s.publisher.publish(new BlockBroken(s.header(world, uuid), pos.x, pos.y, pos.z, blockId,
-                    itemId(event.getItemInHand()), own, creative(store, ref)));
+                    itemId(event.getItemInHand()), own, creative(store, ref), ripe));
         }
     }
 
@@ -139,7 +175,10 @@ public final class BlockHooks implements HookSet {
 
     /**
      * {@code PlaceBlockEvent} on players. Notes the spot and the item even when nobody wants the placement
-     * itself, since the break flag and the consumed rule read them.
+     * itself, since the break flag and the consumed rule read them. Planting a seed fires this same event
+     * with the seed bag in hand, see {@link FarmBlocks#placedBy}. A planting is a repeat only when the player
+     * broke an unripe crop on the spot since, so replanting a harvested plot counts while planting and
+     * breaking the same seed does not.
      */
     static final class PlaceSystem extends AnyKindPlayerSystem<PlaceBlockEvent> {
         private final BlockHooks h;
@@ -165,12 +204,18 @@ public final class BlockHooks implements HookSet {
             }
             String world = worldName(store);
             boolean fresh = h.placed.place(uuid, world, pos.x, pos.y, pos.z);
+            String blockKey = item != null ? item.getBlockKey() : null;
+            boolean planted = false;
+            if (blockKey == null) {
+                blockKey = FarmBlocks.placedBy(itemId);
+                planted = FarmBlocks.farming(blockKey);
+            }
+            boolean repeat = repeatSpot(h.unripe, uuid, world, pos.x, pos.y, pos.z, planted, fresh);
             if (!s.publisher.wants(EventKind.BLOCK_PLACED)) {
                 return;
             }
-            String blockKey = item != null ? item.getBlockKey() : null;
             s.publisher.publish(new BlockPlaced(s.header(world, uuid), pos.x, pos.y, pos.z, itemId, blockKey,
-                    !fresh, creative(store, ref)));
+                    repeat, creative(store, ref), planted));
         }
     }
 

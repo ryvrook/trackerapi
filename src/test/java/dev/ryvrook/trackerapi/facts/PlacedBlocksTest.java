@@ -33,6 +33,18 @@ class PlacedBlocksTest {
     }
 
     @Test
+    void releaseForgetsOneSpotAndSaysWhetherItWasThere() {
+        PlacedBlocks placed = new PlacedBlocks();
+        placed.place(alice, "default", 7, 64, 7);
+        assertFalse(placed.release(bob, "default", 7, 64, 7), "someone else's spot is not theirs to release");
+        assertFalse(placed.release(alice, "other", 7, 64, 7));
+        assertTrue(placed.release(alice, "default", 7, 64, 7));
+        assertFalse(placed.placedHere(alice, "default", 7, 64, 7));
+        assertFalse(placed.release(alice, "default", 7, 64, 7), "a second release finds nothing");
+        assertFalse(placed.release(null, "default", 7, 64, 7));
+    }
+
+    @Test
     void oldestSpotFallsOffAfterTheLimit() {
         PlacedBlocks placed = new PlacedBlocks();
         for (int i = 0; i <= PlacedBlocks.PER_PLAYER; i++) {

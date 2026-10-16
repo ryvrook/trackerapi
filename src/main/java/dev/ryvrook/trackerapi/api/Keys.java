@@ -21,6 +21,10 @@ public final class Keys {
     public static final String BLOCK_BROKEN = "block_broken";
     public static final String BLOCK_PLACED = "block_placed";
     public static final String BLOCK_USED = "block_used";
+    /** Seeds and saplings planted, a placement whose block has farming data. Replanting a harvested plot counts. */
+    public static final String CROPS_PLANTED = "crops_planted";
+    /** Ripe crops broken by hand, the F key harvest. Harvests through a sickle or a berry bush are not in it. */
+    public static final String CROPS_HARVESTED = "crops_harvested";
     public static final String ITEM_CRAFTED = "item_crafted";
     public static final String ITEM_PICKED_UP = "item_picked_up";
     public static final String ITEMS_GAINED = "items_gained";
@@ -78,6 +82,10 @@ public final class Keys {
     public static final String P_BLOCK_BROKEN = "block_broken";
     public static final String P_BLOCK_PLACED = "block_placed";
     public static final String P_BLOCK_USED = "block_used";
+    /** Per crop block, such as {@code crops_planted:Plant_Crop_Carrot_Block}. */
+    public static final String P_CROPS_PLANTED = "crops_planted";
+    /** Per crop block without its stage, such as {@code crops_harvested:Plant_Crop_Carrot_Block}. */
+    public static final String P_CROPS_HARVESTED = "crops_harvested";
     public static final String P_ITEM_CRAFTED = "item_crafted";
     public static final String P_ITEM_PICKED_UP = "item_picked_up";
     public static final String P_ITEMS_GAINED = "items_gained";
@@ -109,7 +117,8 @@ public final class Keys {
 
     /** Every prefix TrackerAPI writes, so other plugins cannot claim them. */
     public static final List<String> RESERVED_PREFIXES = List.of(P_BLOCK_BROKEN, P_BLOCK_PLACED, P_BLOCK_USED,
-            P_ITEM_CRAFTED, P_ITEM_PICKED_UP, P_ITEMS_GAINED, P_ITEMS_LOST, P_ITEM_CONSUMED, P_ITEM_DROPPED, P_KILL,
+            P_CROPS_PLANTED, P_CROPS_HARVESTED, P_ITEM_CRAFTED, P_ITEM_PICKED_UP, P_ITEMS_GAINED, P_ITEMS_LOST,
+            P_ITEM_CONSUMED, P_ITEM_DROPPED, P_KILL,
             P_KILLED_BY, P_DEATH, P_DAMAGE_CAUSE, P_TAMED, P_INTERACTION, P_ZONE, P_WORLD_ENTERED, P_PORTAL, P_MEMORY,
             P_EFFECT, P_MOUNT, P_WORLD_EVENT, P_COMMAND, P_OBJECTIVE, P_RECIPE, P_ITEM_BROKEN, P_ENTITY_USED,
             P_INSTANCE, P_REPUTATION, P_WORLD);

@@ -1,5 +1,22 @@
 # Changelog
 
+## 1.1.1
+
+Planting and harvesting crops count now. Updating is a jar swap.
+
+- Planting a seed was counted under the seed bag's item id with no block, and replanting a harvested plot was
+  thrown away as a repeat placement, so farms showed next to nothing. The engine plants through the same
+  `PlaceBlockEvent` as any block, but with the seed bag in hand and no word of the crop. TrackerAPI now reads the
+  crop from the seed's place interaction, so `BlockPlaced.blockId` is `Plant_Crop_Carrot_Block` for
+  `Plant_Seeds_Carrot`, and the new `planted` flag is true for any block that grows in stages, crops and saplings.
+- A planting is only a repeat when the player broke an unripe crop on that spot since planting it, since that
+  hands the seed back. Replanting after a harvest counts every time.
+- New counters `crops_planted` and `crops_planted:<crop block>`, and `crops_harvested` and
+  `crops_harvested:<crop block>` for a ripe crop broken by hand. The harvest counts on the player's own plot,
+  where `block_broken` still does not. `BlockBroken` has a new `ripeCrop` flag for it.
+- Harvests with a sickle and picking a berry bush fire no block event in 0.7.1, so they are not in
+  `crops_harvested`. Their drops still count as pickups.
+
 ## 1.1.0
 
 Players see no change. For admins, a reload of TrackerAPI now brings its dependents back in the right order, each

@@ -41,6 +41,7 @@ import dev.ryvrook.trackerapi.api.event.ProjectileLaunched;
 import dev.ryvrook.trackerapi.api.event.WorldEventEnded;
 import dev.ryvrook.trackerapi.api.event.ZoneDiscovered;
 import dev.ryvrook.trackerapi.bus.Publisher;
+import dev.ryvrook.trackerapi.facts.Crops;
 import dev.ryvrook.trackerapi.facts.Forgetting;
 import dev.ryvrook.trackerapi.facts.KillStreaks;
 
@@ -58,6 +59,7 @@ import java.util.concurrent.ConcurrentHashMap;
  * <p>Creative mode counts here as it does in the engine, the {@code creative} flag on the block events
  * lets a consumer skip it. The anti farm rules are the Feats ones. Breaking a block the player placed
  * recently and placing a block on a spot used recently count nothing, neither the total nor the per id key.
+ * A ripe crop broken by hand counts as a harvest even on a spot the player planted, since it had to grow.
  * Chat counts at most one message per player every five seconds, and a cancelled message never counts.
  * Kill streaks and the chat timer outlive a relog and are forgotten an hour after the player left, through
  * {@link Forgetting}.
@@ -111,16 +113,24 @@ public final class CounterSink implements Publisher.Sink {
         String w = event.world();
         switch (event) {
             case BlockBroken e -> {
-                if (p == null || e.playerPlaced() || (e.creative() && !countCreative)) {
+                if (p == null || (e.creative() && !countCreative)) {
                     return;
                 }
-                store.addId(p, Keys.P_BLOCK_BROKEN, e.blockId(), Keys.BLOCK_BROKEN, 1, w);
+                if (e.ripeCrop()) {
+                    store.addId(p, Keys.P_CROPS_HARVESTED, Crops.baseId(e.blockId()), Keys.CROPS_HARVESTED, 1, w);
+                }
+                if (!e.playerPlaced()) {
+                    store.addId(p, Keys.P_BLOCK_BROKEN, e.blockId(), Keys.BLOCK_BROKEN, 1, w);
+                }
             }
             case BlockPlaced e -> {
                 if (p == null || e.repeatSpot() || (e.creative() && !countCreative)) {
                     return;
                 }
                 store.addId(p, Keys.P_BLOCK_PLACED, e.itemId(), Keys.BLOCK_PLACED, 1, w);
+                if (e.planted()) {
+                    store.addId(p, Keys.P_CROPS_PLANTED, e.blockId(), Keys.CROPS_PLANTED, 1, w);
+                }
             }
             case BlockUsed e -> store.addId(p, Keys.P_BLOCK_USED, e.blockId(), Keys.BLOCK_USED, 1, w);
             case ItemCrafted e -> store.addId(p, Keys.P_ITEM_CRAFTED, e.itemId(), Keys.ITEM_CRAFTED, Math.max(1, e.quantity()), w);
