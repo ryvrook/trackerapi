@@ -16,6 +16,9 @@ once. Updating is a jar swap, no setting changed.
   keeps the larger value instead of adding the two.
 - Two plugins subscribing in the same moment, as happens when several bind together after a reload, can no longer
   leave one of them without events.
+- A reload of TrackerAPI no longer stalls for 10 seconds when a plugin meets a TrackerAPI class for the first time
+  while TrackerAPI shuts down, SocialBridge on the stop notice among them. The last events go out on the shutdown
+  thread, which may load the class.
 - The reload pass runs on its own thread, so TrackerAPI's timer never waits on another plugin's start.
 - The dispatch thread skips a listener when a batch holds none of its kinds. With the 60 subscriptions of the
   whole suite a block event costs about 65 ns on that thread instead of 155.
