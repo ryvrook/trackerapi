@@ -3,7 +3,8 @@
 TrackerAPI hooks the engine once for every block, item, hit, death, movement, chat line and world change, and
 hands the result to other plugins as 62 kinds of event, lifetime counters per player and an hourly journal on
 disk. On its own it does nothing a player sees. It exists so Feats, Chronicle Stats, Atlas, Coinage and Dominion
-stop running five copies of the same tracking and stop disagreeing about the numbers.
+stop running five copies of the same tracking and stop disagreeing about the numbers. SocialBridge and RestAPI
+read from it too.
 
 ## Requirements
 
@@ -62,29 +63,25 @@ Missing keys are written back with their defaults. Values out of range are clamp
 
 ## With the other mods
 
-Each consumer lists `Ryvrook:TrackerAPI` as an optional dependency and has a config key, `Tracker` in Feats and
-`tracker` in the others, set to `auto`, `always` or `never`. On `auto` it uses TrackerAPI when present and
-tracks on its own when not.
+Seven of my mods list `Ryvrook:TrackerAPI` as an optional dependency and keep working without it. Each has a
+setting with `auto`, `always` or `never`. On `auto` it uses TrackerAPI when present and falls back to its own
+hooks, or drops the feature, when not.
 
-**Feats 1.5.0 and newer** drops its own tracking systems and feeds 19 kinds into its feats. Counts carry on in
-the Feats files without a gap.
+| Mod | What it does with TrackerAPI | Setting |
+|---|---|---|
+| Feats 1.7.2 | Registers none of its own tracking hooks and takes 34 event kinds for its feats. Counts carry on in the Feats files either way | `Tracker` |
+| Chronicle Stats 1.5.0 | Takes 35 kinds and the player snapshots for its stats, records and dashboard, which shows "TrackerAPI connected". Sums Dominion's counters per faction | `tracker` |
+| Atlas 1.9.0 | Builds the activity heat layer and the kill feed from block breaks, places and deaths | `tracker` |
+| Coinage 1.3.0 | Pays kill and block rewards from `EntityDied` and `BlockBroken`, and writes `coinage:earned:<currency>` and `coinage:spent:<currency>`, each with a leaderboard, plus eight more `coinage:` counters | `integrations.tracker` |
+| Dominion Factions 0.7.1 | Feeds the mine, chop, farm and fish missions from block and item events, and writes 25 `dominion:` counters, 23 of them with a leaderboard | `integrations.tracker` |
+| SocialBridge 0.2.0 | Posts joins, leaves, deaths and boss kills to Discord from its events, and adds `/profile` stats and `/top <counter>` | `suite.trackerapi` |
+| RestAPI 0.2.0 | Serves counters, leaderboards, snapshots, recent events and journal lookups under `/api/tracker` | `siblings.tracker` |
 
-**Chronicle Stats 1.2.0 and newer** takes 35 kinds and the player snapshots for its stats, records and web
-dashboard, and shows "TrackerAPI connected" at the top right of the dashboard.
-
-**Atlas 1.6.0 and newer** builds its activity heat layer and kill feed from block and death events.
-
-**Coinage 1.0.0 and newer** pays kill and block rewards from `EntityDied` and `BlockBroken`, and writes
-`coinage:earned:<currency>` and `coinage:spent:<currency>` counters back.
-
-**Dominion 0.5.1** feeds its gather missions from block broken, block placed, item picked up and item dropped,
-and writes ten `dominion:` counters such as `dominion:claims` and `dominion:sieges_won`, each with a
-leaderboard.
-
-Lullaby does not use it.
+Lullaby does not use it. TrackerAPI counts sleeps from the bed state on its own.
 
 A `/plugin reload` of TrackerAPI leaves those plugins linked to the old classes, so two seconds after it starts
-again TrackerAPI reloads each of them in dependency order, Coinage before Chronicle Stats and Dominion.
+again TrackerAPI reloads each of them once, in dependency order. Coinage comes back first, Atlas and Feats before
+the mods that read them, and SocialBridge and RestAPI last, since they list every other mod.
 
 ## For plugin authors
 
