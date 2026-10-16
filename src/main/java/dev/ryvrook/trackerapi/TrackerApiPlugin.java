@@ -185,6 +185,24 @@ public final class TrackerApiPlugin extends JavaPlugin {
         }, 2, TimeUnit.SECONDS);
     }
 
+    /**
+     * The enabled plugins that list TrackerAPI, as name and version in reload order, for the status command.
+     * Read from the plugin manager on each call, so a sibling added or reloaded since start shows as it is now.
+     */
+    public java.util.List<String> dependentNames() {
+        java.util.List<String> out = new java.util.ArrayList<>();
+        for (Dependents.Dependent d : Dependents.enabled(getIdentifier(), getLogger())) {
+            String version;
+            try {
+                version = d.instance().getManifest().getVersion().toString();
+            } catch (RuntimeException | LinkageError e) {
+                version = "unknown";
+            }
+            out.add(d.id().getName() + " " + version);
+        }
+        return out;
+    }
+
     @Override
     protected void shutdown() {
         stopping = true;

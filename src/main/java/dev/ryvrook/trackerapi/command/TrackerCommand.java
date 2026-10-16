@@ -327,6 +327,8 @@ public final class TrackerCommand extends AbstractCommandCollection {
         lines.add(built <= 0 ? "Boards are not built yet."
                 : "Boards built " + duration(System.currentTimeMillis() - built) + " ago over "
                 + s.counters.boards().players() + " players.");
+        List<String> users = plugin.dependentNames();
+        lines.add(users.isEmpty() ? "No enabled plugin lists TrackerAPI." : "Used by " + String.join(", ", users) + ".");
         List<Subscription> subs = s.publisher.subscriptions();
         lines.add(subs.isEmpty() ? "No subscriptions." : subs.size() + " subscriptions.");
         for (Subscription sub : subs) {
