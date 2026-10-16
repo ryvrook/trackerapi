@@ -19,9 +19,12 @@ once. Updating is a jar swap, no setting changed.
 - A reload of TrackerAPI no longer stalls for 10 seconds when a plugin meets a TrackerAPI class for the first time
   while TrackerAPI shuts down, SocialBridge on the stop notice among them. The last events go out on the shutdown
   thread, which may load the class.
+- `/trackerapi status` lists the plugins that use TrackerAPI with their versions, in the order a reload brings
+  them back.
 - The reload pass runs on its own thread, so TrackerAPI's timer never waits on another plugin's start.
-- The dispatch thread skips a listener when a batch holds none of its kinds. With the 60 subscriptions of the
-  whole suite a block event costs about 65 ns on that thread instead of 155.
+- The dispatch thread skips a listener when a batch holds none of its kinds. With the 60 subscriptions of the five
+  consumers of 1.0.3 a block event costs about 65 ns on that thread instead of 155, and with the 78 of all seven
+  consumers about 73.
 
 ## 1.0.3
 

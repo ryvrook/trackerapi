@@ -27,7 +27,7 @@ Every command needs `trackerapi.admin`. The console has it.
 
 | Command | What it does |
 |---|---|
-| `/trackerapi status` | Version, uptime, players loaded, every subscription with owner, kinds and delivery, queue depth, drops, journal size |
+| `/trackerapi status` | Version, uptime, players loaded, the plugins that use TrackerAPI with their versions, every subscription with owner, kinds and delivery, queue depth, drops, journal size |
 | `/trackerapi perf` | What each hook costs on the engine threads, highest first, with a verdict. `perf reset` starts over |
 | `/trackerapi recent <kind> [n]` | The last events of a kind, from memory |
 | `/trackerapi lookup <player or here> [--radius n] [--kinds a,b] [--hours n] [--limit n]` | Search the journal |
@@ -120,8 +120,8 @@ moment later. `counters().watchBoard(key)` gives you a leaderboard for it.
 ## Cost
 
 A hook whose kind nobody wants costs one volatile read. A wanted kind builds one small record on the world
-thread and passes it to the dispatch thread through a lock free queue. With the 60 subscriptions the whole suite
-opens, the dispatch thread spends 61 to 69 ns per block event. A slow listener cannot slow the tick, it only
+thread and passes it to the dispatch thread through a lock free queue. With the 78 subscriptions all seven of my
+mods open, the dispatch thread spends 72 to 75 ns per block event. A slow listener cannot slow the tick, it only
 gets warned and then suspended. `/trackerapi perf` shows the real numbers on your server.
 
 The journal is most of the disk use. Damage, position samples, inventory moves and chunk loads stay out of it
