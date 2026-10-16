@@ -33,6 +33,8 @@ import java.util.logging.Level;
  */
 public final class TrackerApiPlugin extends JavaPlugin {
     private static final long DRAIN_SECONDS = 10;
+    /** How long the shutdown waits for the dispatch thread to finish the batch in hand. */
+    private static final long HAND_OVER_MILLIS = 2_000;
 
     private Services services;
     private TrackerApiImpl api;
@@ -206,9 +208,14 @@ public final class TrackerApiPlugin extends JavaPlugin {
     @Override
     protected void shutdown() {
         stopping = true;
+        // The rest of the queue and STOPPING are delivered on this thread, see Dispatcher.handOver.
+        boolean here = services.dispatcher.handOver(HAND_OVER_MILLIS);
         if (api != null) {
             if (services.publisher.wants(EventKind.SERVER_LIFECYCLE)) {
                 services.publisher.publish(new ServerLifecycle(services.header(null, null), ServerLifecycle.Phase.STOPPING));
+            }
+            if (here) {
+                services.dispatcher.drainHere();
             }
             TrackerApiImpl.withdraw(api);
         }
@@ -227,7 +234,12 @@ public final class TrackerApiPlugin extends JavaPlugin {
         }
         // Stop taking events first, so nothing is published while the queue drains, then drop the listeners.
         services.publisher.stopAccepting();
-        services.dispatcher.stop(TimeUnit.SECONDS.toMillis(DRAIN_SECONDS));
+        if (here) {
+            services.dispatcher.drainHere();
+        } else {
+            getLogger().at(Level.WARNING).log("TrackerAPI's dispatch thread is still inside a listener, waiting up to %d s for it", DRAIN_SECONDS);
+            services.dispatcher.stop(TimeUnit.SECONDS.toMillis(DRAIN_SECONDS));
+        }
         services.publisher.close();
         if (services.journal() != null) {
             services.journal().stop();

@@ -214,4 +214,53 @@ class DispatcherTest {
         assertTrue(!s.isActive());
         assertEquals(0, pub.asyncSubscriptions().length);
     }
+
+    @Test
+    void aHandOverLeavesTheQueueToTheShutdownThread() throws Exception {
+        Dispatcher[] dh = new Dispatcher[1];
+        Publisher pub = new Publisher(TestSupport.LOGGER, perf, 4096, () -> dh[0].wake());
+        Dispatcher d = new Dispatcher(pub, TestSupport.LOGGER, perf);
+        dh[0] = d;
+        List<String> threads = new ArrayList<>();
+        pub.subscribe("Async", null, Delivery.ASYNC, e -> threads.add(Thread.currentThread().getName()));
+        d.start();
+        assertTrue(d.handOver(2_000), "an idle thread ends at once");
+        for (int i = 0; i < 10; i++) {
+            pub.publish(TestSupport.broken(P, "Rock_Stone"));
+        }
+        Thread.sleep(50);
+        assertTrue(threads.isEmpty(), "nothing is delivered after the hand over until the shutdown drains");
+        assertEquals(10, pub.queued());
+
+        d.drainHere();
+        assertEquals(10, threads.size());
+        assertTrue(threads.stream().allMatch(Thread.currentThread().getName()::equals), "delivered on the caller");
+        assertEquals(0, pub.queued());
+    }
+
+    @Test
+    void aHandOverWaitsNoLongerThanAskedForAListenerThatHangs() throws Exception {
+        Dispatcher[] dh = new Dispatcher[1];
+        Publisher pub = new Publisher(TestSupport.LOGGER, perf, 4096, () -> dh[0].wake());
+        Dispatcher d = new Dispatcher(pub, TestSupport.LOGGER, perf);
+        dh[0] = d;
+        CountDownLatch inside = new CountDownLatch(1);
+        CountDownLatch release = new CountDownLatch(1);
+        pub.subscribe("Stuck", null, Delivery.ASYNC, e -> {
+            inside.countDown();
+            try {
+                release.await(5, TimeUnit.SECONDS);
+            } catch (InterruptedException ex) {
+                Thread.currentThread().interrupt();
+            }
+        });
+        d.start();
+        pub.publish(TestSupport.broken(P, "Rock_Stone"));
+        assertTrue(inside.await(2, TimeUnit.SECONDS));
+        long start = System.nanoTime();
+        assertEquals(false, d.handOver(100), "the thread is still inside the listener");
+        assertTrue(System.nanoTime() - start < TimeUnit.SECONDS.toNanos(2));
+        release.countDown();
+        d.stop(2_000);
+    }
 }

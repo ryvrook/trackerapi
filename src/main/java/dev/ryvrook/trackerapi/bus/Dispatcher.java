@@ -40,6 +40,8 @@ public final class Dispatcher implements Runnable {
     private final Guard.RateLimiter warnings = new Guard.RateLimiter(TimeUnit.MINUTES.toNanos(1));
     private volatile long budgetNanos = TimeUnit.MILLISECONDS.toNanos(5);
     private volatile boolean stop;
+    /** Set by {@link #handOver}, the thread returns after the batch in hand and leaves the rest queued. */
+    private volatile boolean halt;
     private volatile Thread thread;
     /** True while the thread is parked with nothing to do, the only time a publish pays for an unpark. */
     private volatile boolean idle;
@@ -96,11 +98,57 @@ public final class Dispatcher implements Runnable {
         thread = null;
     }
 
+    /**
+     * Stops the thread without draining and leaves what is queued for {@link #drainHere}. True when the thread
+     * ended within {@code millis}, false when it is still inside a listener, and then the caller must not
+     * deliver on its own thread as well.
+     *
+     * <p>For the plugin shutdown. The plugin manager holds its write lock while a plugin shuts down, and a
+     * consumer's class loader takes the read lock to find a TrackerAPI class it has not loaded yet. A listener
+     * that meets such a class on this thread waits for the shutdown, and the shutdown waited for this thread,
+     * until the drain timed out 10 seconds later and the listener failed anyway. On the shutdown thread the
+     * lock is already held, so the same class load goes through.
+     */
+    public boolean handOver(long millis) {
+        halt = true;
+        Thread t = thread;
+        if (t == null) {
+            return true;
+        }
+        LockSupport.unpark(t);
+        try {
+            t.join(millis);
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+        }
+        if (t.isAlive()) {
+            return false;
+        }
+        thread = null;
+        return true;
+    }
+
+    /** Delivers everything queued on the calling thread, after {@link #handOver} answered true. */
+    public void drainHere() {
+        MpmcQueue<TrackerEvent> queue = publisher.queue();
+        TrackerEvent e;
+        while ((e = queue.poll()) != null) {
+            batch.add(e);
+            while (batch.size() < BATCH && (e = queue.poll()) != null) {
+                batch.add(e);
+            }
+            deliverBatch();
+        }
+    }
+
     @Override
     public void run() {
         MpmcQueue<TrackerEvent> queue = publisher.queue();
         int naps = NAPS;
         while (true) {
+            if (halt) {
+                return;
+            }
             TrackerEvent first = queue.poll();
             if (first == null) {
                 if (stop) {
@@ -126,15 +174,19 @@ public final class Dispatcher implements Runnable {
             while (batch.size() < BATCH && (e = queue.poll()) != null) {
                 batch.add(e);
             }
-            long start = System.nanoTime();
-            try {
-                deliver(batch);
-            } catch (RuntimeException | LinkageError ex) {
-                Guard.failed(ex, "TrackerAPI dispatch failed");
-            } finally {
-                batch.clear();
-                perf.record(Perf.R_DISPATCH, System.nanoTime() - start);
-            }
+            deliverBatch();
+        }
+    }
+
+    private void deliverBatch() {
+        long start = System.nanoTime();
+        try {
+            deliver(batch);
+        } catch (RuntimeException | LinkageError ex) {
+            Guard.failed(ex, "TrackerAPI dispatch failed");
+        } finally {
+            batch.clear();
+            perf.record(Perf.R_DISPATCH, System.nanoTime() - start);
         }
     }
 
