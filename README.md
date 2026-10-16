@@ -69,11 +69,11 @@ hooks, or drops the feature, when not.
 
 | Mod | What it does with TrackerAPI | Setting |
 |---|---|---|
-| Feats 1.7.2 | Registers none of its own tracking hooks and takes 34 event kinds for its feats. Counts carry on in the Feats files either way | `Tracker` |
+| Feats 1.7.3 | Registers none of its own tracking hooks and takes 34 event kinds for its feats. Counts carry on in the Feats files either way | `Tracker` |
 | Chronicle Stats 1.5.0 | Takes 35 kinds and the player snapshots for its stats, records and dashboard, which shows "TrackerAPI connected". Sums Dominion's counters per faction | `tracker` |
 | Atlas 1.9.0 | Builds the activity heat layer and the kill feed from block breaks, places and deaths | `tracker` |
 | Coinage 1.3.0 | Pays kill and block rewards from `EntityDied` and `BlockBroken`, and writes `coinage:earned:<currency>` and `coinage:spent:<currency>`, each with a leaderboard, plus eight more `coinage:` counters | `integrations.tracker` |
-| Dominion Factions 0.7.1 | Feeds the mine, chop, farm and fish missions from block and item events, and writes 25 `dominion:` counters, 23 of them with a leaderboard | `integrations.tracker` |
+| Dominion Factions 0.7.2 | Feeds the mine, chop, farm and fish missions from block and item events, and writes 25 `dominion:` counters, 23 of them with a leaderboard | `integrations.tracker` |
 | SocialBridge 0.2.0 | Posts joins, leaves, deaths and boss kills to Discord from its events, and adds `/profile` stats and `/top <counter>` | `suite.trackerapi` |
 | RestAPI 0.2.0 | Serves counters, leaderboards, snapshots, recent events and journal lookups under `/api/tracker` | `siblings.tracker` |
 
