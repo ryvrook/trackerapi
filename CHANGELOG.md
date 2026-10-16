@@ -14,6 +14,9 @@ once. Updating is a jar swap, no setting changed.
   were not on, go into that player's file instead of being dropped, and feed the server totals.
 - A plugin counter raised with `raiseTo` in the first moment after a join, before the player's file was read,
   keeps the larger value instead of adding the two.
+- Two plugins subscribing in the same moment, as happens when several bind together after a reload, can no longer
+  leave one of them without events.
+- The reload pass runs on its own thread, so TrackerAPI's timer never waits on another plugin's start.
 - The dispatch thread skips a listener when a batch holds none of its kinds. With the 60 subscriptions of the
   whole suite a block event costs about 65 ns on that thread instead of 155.
 
