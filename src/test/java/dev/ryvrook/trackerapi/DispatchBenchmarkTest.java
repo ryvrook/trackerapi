@@ -13,12 +13,16 @@ import dev.ryvrook.trackerapi.api.event.CreatureTamed;
 import dev.ryvrook.trackerapi.api.event.DamageDealt;
 import dev.ryvrook.trackerapi.api.event.EffectChanged;
 import dev.ryvrook.trackerapi.api.event.EntityDied;
+import dev.ryvrook.trackerapi.api.event.EntityUsed;
 import dev.ryvrook.trackerapi.api.event.GameModeChanged;
 import dev.ryvrook.trackerapi.api.event.GameTimeSampled;
+import dev.ryvrook.trackerapi.api.event.InstanceDiscovered;
 import dev.ryvrook.trackerapi.api.event.InteractionStarted;
+import dev.ryvrook.trackerapi.api.event.ItemBroke;
 import dev.ryvrook.trackerapi.api.event.ItemConsumed;
 import dev.ryvrook.trackerapi.api.event.ItemCrafted;
 import dev.ryvrook.trackerapi.api.event.ItemDropped;
+import dev.ryvrook.trackerapi.api.event.ItemEquipped;
 import dev.ryvrook.trackerapi.api.event.ItemPickedUp;
 import dev.ryvrook.trackerapi.api.event.ItemsGained;
 import dev.ryvrook.trackerapi.api.event.ItemsLost;
@@ -33,7 +37,9 @@ import dev.ryvrook.trackerapi.api.event.PlayerRespawned;
 import dev.ryvrook.trackerapi.api.event.PlayerSlept;
 import dev.ryvrook.trackerapi.api.event.PlayerTeleported;
 import dev.ryvrook.trackerapi.api.event.PlayerWorldChanged;
+import dev.ryvrook.trackerapi.api.event.ProjectileLanded;
 import dev.ryvrook.trackerapi.api.event.ProjectileLaunched;
+import dev.ryvrook.trackerapi.api.event.TriggerVolumeFired;
 import dev.ryvrook.trackerapi.api.event.VitalsSampled;
 import dev.ryvrook.trackerapi.api.event.WeatherChanged;
 import dev.ryvrook.trackerapi.api.event.WorldAdded;
@@ -55,10 +61,12 @@ import java.util.concurrent.atomic.AtomicLong;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 
 /**
- * The dispatch thread with the subscriptions the suite opens on a server that runs every mod. Feats takes
- * 19 kinds, Chronicle Stats 35, Atlas 3 and Coinage 2, one subscription per kind, and Dominion one
- * subscription for its four gather kinds, 60 in all. The events are queued first and then drained, so the time is the dispatch thread's own
- * cost per event, not the publisher's. Run with -Pbench for a million events and the numbers in the console.
+ * The dispatch thread with the subscriptions the suite opens on a server that runs every mod, 78 of them as
+ * {@code /trackerapi status} listed on 2026-10-16. Feats takes 34 kinds, Chronicle Stats 35, Atlas 3 and Coinage
+ * 2, one subscription per kind. Dominion has one subscription for its four gather kinds, SocialBridge one for
+ * joins, leaves, deaths and the server lifecycle plus one for deaths, and RestAPI one for every kind that is not
+ * high volume. The events are queued first and then drained, so the time is the dispatch thread's own cost per
+ * event, not the publisher's. Run with -Pbench for a million events and the numbers in the console.
  */
 class DispatchBenchmarkTest {
     private static final boolean BENCH = Boolean.getBoolean("trackerapi.bench");
@@ -68,7 +76,10 @@ class DispatchBenchmarkTest {
             BlockUsed.class, CreatureTamed.class, DamageDealt.class, EntityDied.class, GameModeChanged.class,
             InteractionStarted.class, ItemConsumed.class, ItemCrafted.class, ItemPickedUp.class, ItemsGained.class,
             MemoryRecorded.class, PlayerChatted.class, PlayerMoved.class, PlayerWorldChanged.class, WorldAdded.class,
-            WorldRemoved.class, ZoneDiscovered.class);
+            WorldRemoved.class, ZoneDiscovered.class, MovementEdge.class, MountChanged.class, VitalsSampled.class,
+            ItemEquipped.class, ItemBroke.class, ProjectileLaunched.class, ProjectileLanded.class,
+            InstanceDiscovered.class, TriggerVolumeFired.class, WorldEventEnded.class, PlayerSlept.class,
+            WeatherChanged.class, GameTimeSampled.class, EntityUsed.class, PlayerLeft.class);
     private static final List<Class<? extends TrackerEvent>> CHRONICLE = List.of(BlockBroken.class,
             BlockBrokenByWorld.class, BlockPlaced.class, BlockUsed.class, ChunkGenerated.class, CreatureSpawned.class,
             DamageDealt.class, EffectChanged.class, EntityDied.class, GameModeChanged.class, GameTimeSampled.class, InteractionStarted.class,
@@ -82,6 +93,19 @@ class DispatchBenchmarkTest {
     private static final List<Class<? extends TrackerEvent>> COINAGE = List.of(EntityDied.class, BlockBroken.class);
     private static final EnumSet<EventKind> DOMINION = EnumSet.of(EventKind.BLOCK_BROKEN, EventKind.BLOCK_PLACED,
             EventKind.ITEM_PICKED_UP, EventKind.ITEM_DROPPED);
+    private static final EnumSet<EventKind> SOCIALBRIDGE = EnumSet.of(EventKind.PLAYER_JOINED, EventKind.PLAYER_LEFT,
+            EventKind.ENTITY_DIED, EventKind.SERVER_LIFECYCLE);
+
+    /** RestAPI's recent events ring, every kind that is not high volume, its default. */
+    private static EnumSet<EventKind> restApi() {
+        EnumSet<EventKind> kinds = EnumSet.noneOf(EventKind.class);
+        for (EventKind k : EventKind.values()) {
+            if (!k.highVolume()) {
+                kinds.add(k);
+            }
+        }
+        return kinds;
+    }
 
     @Test
     void theSuiteConsumersDrainABlockStream() {
@@ -96,8 +120,11 @@ class DispatchBenchmarkTest {
                 subscriptions++;
             }
         }
-        publisher.subscribe("Bench", DOMINION, Delivery.ASYNC, e -> delivered.incrementAndGet());
-        subscriptions++;
+        for (EnumSet<EventKind> kinds : List.of(DOMINION, SOCIALBRIDGE, EnumSet.of(EventKind.ENTITY_DIED), restApi())) {
+            publisher.subscribe("Bench", kinds, Delivery.ASYNC, e -> delivered.incrementAndGet());
+            subscriptions++;
+        }
+        assertEquals(78, subscriptions);
         UUID player = UUID.randomUUID();
         for (int i = 0; i < EVENTS; i++) {
             if ((i & 1) == 0) {
@@ -108,8 +135,8 @@ class DispatchBenchmarkTest {
                         "Rock_Stone", false, false));
             }
         }
-        // Breaks reach Feats, Chronicle, Atlas, Coinage and Dominion, places all but Coinage.
-        long expected = (long) (EVENTS / 2) * 5 + (long) (EVENTS / 2) * 4;
+        // Breaks reach Feats, Chronicle, Atlas, Coinage, Dominion and RestAPI, places all but Coinage.
+        long expected = (long) (EVENTS / 2) * 6 + (long) (EVENTS / 2) * 5;
         long start = System.nanoTime();
         dispatcher.start();
         while (delivered.get() < expected && System.nanoTime() - start < 60_000_000_000L) {
