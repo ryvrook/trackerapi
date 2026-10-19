@@ -114,6 +114,12 @@ public final class Keys {
     public static final String P_REPUTATION = "reputation";
     /** Per world copies of totals live under {@code world:<name>:<total>}. */
     public static final String P_WORLD = "world";
+    /**
+     * The hidden per item balance of what a player put into containers or dropped and has not taken back,
+     * {@code stash:<item id>}. It is kept in the player's file only. It is never a stat, never on a board, never
+     * in an API read and never in a server total.
+     */
+    public static final String P_STASH = "stash";
 
     /** Every prefix TrackerAPI writes, so other plugins cannot claim them. */
     public static final List<String> RESERVED_PREFIXES = List.of(P_BLOCK_BROKEN, P_BLOCK_PLACED, P_BLOCK_USED,
@@ -121,7 +127,7 @@ public final class Keys {
             P_ITEM_CONSUMED, P_ITEM_DROPPED, P_KILL,
             P_KILLED_BY, P_DEATH, P_DAMAGE_CAUSE, P_TAMED, P_INTERACTION, P_ZONE, P_WORLD_ENTERED, P_PORTAL, P_MEMORY,
             P_EFFECT, P_MOUNT, P_WORLD_EVENT, P_COMMAND, P_OBJECTIVE, P_RECIPE, P_ITEM_BROKEN, P_ENTITY_USED,
-            P_INSTANCE, P_REPUTATION, P_WORLD);
+            P_INSTANCE, P_REPUTATION, P_WORLD, P_STASH);
 
     /** Totals that get a per world copy. */
     public static final List<String> PER_WORLD_TOTALS = List.of(BLOCK_BROKEN, BLOCK_PLACED, BLOCK_USED, ITEM_CRAFTED,
@@ -172,6 +178,12 @@ public final class Keys {
             return true; // every bare total is TrackerAPI's
         }
         return RESERVED_PREFIXES.contains(p);
+    }
+
+    /** True for a key TrackerAPI keeps for itself and never shows, the {@code stash:} balance. */
+    public static boolean isHidden(String key) {
+        return key != null && key.length() > P_STASH.length() && key.charAt(P_STASH.length()) == ':'
+                && key.startsWith(P_STASH);
     }
 
     /** True for a key another plugin may write, {@code <plugin>:<name>} with a prefix TrackerAPI does not own. */

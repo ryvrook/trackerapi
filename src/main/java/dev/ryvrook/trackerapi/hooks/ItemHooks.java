@@ -37,7 +37,7 @@ import dev.ryvrook.trackerapi.api.event.ItemDropped;
 import dev.ryvrook.trackerapi.api.event.ItemPickedUp;
 import dev.ryvrook.trackerapi.api.event.ItemsGained;
 import dev.ryvrook.trackerapi.facts.RecentDrops;
-import dev.ryvrook.trackerapi.facts.RecentStash;
+import dev.ryvrook.trackerapi.facts.StashBalance;
 import it.unimi.dsi.fastutil.ints.Int2FloatMap;
 
 import java.util.Map;
@@ -59,7 +59,7 @@ public final class ItemHooks implements HookSet {
     final Services s;
     final BlockHooks blocks;
     final RecentDrops drops = new RecentDrops();
-    final RecentStash stash = new RecentStash();
+    final StashBalance stash;
     private final Map<UUID, SourceNote> sources = new ConcurrentHashMap<>();
     /**
      * True once {@code DropItemEvent.Drop} fired on a player this session. Until then the inventory walk
@@ -71,6 +71,7 @@ public final class ItemHooks implements HookSet {
     public ItemHooks(Services services, BlockHooks blocks) {
         this.s = services;
         this.blocks = blocks;
+        this.stash = new StashBalance(services.counters);
     }
 
     @Override
@@ -82,14 +83,13 @@ public final class ItemHooks implements HookSet {
         return drops;
     }
 
-    public RecentStash stash() {
+    public StashBalance stash() {
         return stash;
     }
 
     @Override
     public void install(PluginBase plugin, Services services, Registrar registrar) {
         drops.registerWith(services.forgetting);
-        stash.registerWith(services.forgetting);
         services.forgetting.onPlayer(sources::remove);
         registrar.entitySystem("item crafted", () -> new CraftSystem(this));
         registrar.entitySystem("item craft start", () -> new CraftStartSystem(this));

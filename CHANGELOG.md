@@ -1,5 +1,28 @@
 # Changelog
 
+## 1.1.2
+
+Moving items out of a chest and back in no longer counts as finding them. Updating is a jar swap.
+
+- Swapping two items between a chest and the inventory, by dropping a stack on a slot that holds a different
+  item, counted the item from the chest as gained every time and never noted the one that went in. Done back and
+  forth, it raised `items_gained` and the `obtained` feats of Feats without end. Every move to or from another
+  container is now read on the player's side, what left and what arrived, so a swap is a put away and a take at
+  once. Quick stack, take all and put all go the same way.
+- Items put into a chest or dropped were remembered for 10 minutes and only until a restart, so waiting or
+  restarting made the same items count again. TrackerAPI now keeps a balance per player and item of what was put
+  away and not taken back, with no time limit. It is saved in the player's file as `stash:<item id>`, a reserved
+  prefix that never shows as a stat, on a board, in the server totals or in an API read.
+- Items taken out of a container block a player placed never count as gained. The engine marks every placed
+  block with who placed it and keeps that with the world, so chests placed before TrackerAPI was installed count
+  as placed too. The output slots of furnaces and other processing benches still count, as their items are new.
+  World generated chests count what is not on the balance.
+- Moves to and from containers in Creative now add to and take from the balance, so items put into a chest in
+  Creative do not count when taken out later in Adventure. Creative gains still never count.
+- `ItemsGained` is unchanged. `quantity` is still the full amount moved and `source` is still CONTAINER, only
+  `fresh` changed. Plugins need no rebuild.
+- Totals that earlier versions already raised this way stay as they are. Nothing is taken back.
+
 ## 1.1.1
 
 Planting and harvesting crops count now. Updating is a jar swap.

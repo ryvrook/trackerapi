@@ -29,6 +29,17 @@ import dev.ryvrook.trackerapi.api.event.ItemEquipped;
 import dev.ryvrook.trackerapi.api.event.ItemsGained;
 import dev.ryvrook.trackerapi.api.event.ItemsLost;
 import dev.ryvrook.trackerapi.facts.RecentContainers;
+import com.hypixel.hytale.builtin.crafting.component.ProcessingBenchBlock;
+import com.hypixel.hytale.server.core.entity.entities.Player;
+import com.hypixel.hytale.server.core.entity.entities.player.windows.BlockWindow;
+import com.hypixel.hytale.server.core.entity.entities.player.windows.ContainerBlockWindow;
+import com.hypixel.hytale.server.core.entity.entities.player.windows.ItemContainerWindow;
+import com.hypixel.hytale.server.core.entity.entities.player.windows.Window;
+import com.hypixel.hytale.server.core.entity.entities.player.windows.WindowManager;
+import com.hypixel.hytale.server.core.inventory.container.CombinedItemContainer;
+import com.hypixel.hytale.server.core.modules.block.BlockModule;
+import com.hypixel.hytale.server.core.modules.interaction.components.PlacedByInteractionComponent;
+import com.hypixel.hytale.server.core.universe.world.World;
 
 import java.util.HashMap;
 import java.util.List;
@@ -41,13 +52,20 @@ import java.util.UUID;
  * item kind. World thread.
  *
  * <p>Gains and losses. Only the sections a player carries count (hotbar, storage, backpack, utility).
- * Loot, mob drops, ground pickups and crafted results arrive as add transactions. Taking items out of a
- * chest or bench arrives as a move into this section whose other side is not one of the player's own
- * sections, a gain with source CONTAINER. A move out to such a container is a loss, STASHED. Moves between
- * two of the player's own sections, sorting and swapping are skipped, so rearranging never counts. A top
- * level removal that names no stack is the drop key, a whole stack leaving such as death drops is the
- * same, both DROPPED, or DEATH when the player is dead. Items put away or dropped go into the stash and
- * dropped items into the recent drops, so taking them back is not fresh.
+ * Loot, mob drops, ground pickups and crafted results arrive as add transactions. Any move whose other side
+ * is not one of the player's own sections is read on the player's side, slot before against slot after,
+ * whichever way the move ran, see {@link MoveSides}. What left is a loss, STASHED, and what arrived is a gain
+ * with source CONTAINER. A swap of two stacks that do not stack together is both at once. Moves between two
+ * of the player's own sections and sorting are skipped, so rearranging never counts. A top level removal
+ * that names no stack is the drop key, a whole stack leaving such as death drops is the same, both DROPPED,
+ * or DEATH when the player is dead.
+ *
+ * <p>Fresh. Items put away or dropped go onto the player's {@link dev.ryvrook.trackerapi.facts.StashBalance},
+ * which has no clock and is saved with the player, and dropped items into the recent drops. A gain takes
+ * what it can off the balance first and only the rest is fresh. Items out of a container block some player
+ * placed, which the engine marks with {@code PlacedByInteractionComponent} and keeps in the chunk, are never
+ * fresh. The output slots of a processing bench, a furnace for one, are the exception, they hold new items.
+ * Any other container, a world generated chest or one TrackerAPI cannot place, is fresh less the balance.
  *
  * <p>Meals and potions. A finished eat or drink takes exactly one Food_ or Potion_ item out of the hotbar
  * or the utility belt through a removal that names the held stack. A placement just before it makes it a
@@ -58,7 +76,10 @@ import java.util.UUID;
  * of those sections.
  *
  * <p>Creative mode is skipped for gains, losses, meals and drops, as Feats and Chronicle do, its items are
- * free. A change that moves nothing countable allocates nothing.
+ * free. Its moves to and from other containers still change the balance, so items put into a chest in
+ * Creative are not fresh when taken out later in Adventure. The Creative item library is no container on
+ * the server. Taking from it sets the player's slots directly and never shows as a move [javap 0.7.2
+ * InventoryPacketHandler SetCreativeItem], so it never feeds the balance. A change that moves nothing countable allocates nothing.
  */
 final class InventoryHook extends AnyKindPlayerSystem<InventoryChangeEvent> {
     private static final String ARMOR = "Armor";
@@ -100,7 +121,14 @@ final class InventoryHook extends AnyKindPlayerSystem<InventoryChangeEvent> {
         if (broke || equip) {
             scan(uuid, world, equipSection, transaction, broke, equip);
         }
-        if (!carried || BlockHooks.creative(store, ref)) {
+        if (!carried) {
+            return;
+        }
+        if (BlockHooks.creative(store, ref)) {
+            Totals free = walk(transaction, true, true, ref, store, null);
+            if (free != null) {
+                h.stash.creative(uuid, free.stashed, free.fromContainer);
+            }
             return;
         }
 
@@ -117,7 +145,7 @@ final class InventoryHook extends AnyKindPlayerSystem<InventoryChangeEvent> {
             RecentContainers.Use at = h.blocks.containers().recent(uuid, now);
             boolean lost = s.publisher.wants(EventKind.ITEMS_LOST);
             for (Map.Entry<String, Long> e : t.stashed.entrySet()) {
-                h.stash.record(uuid, e.getKey(), e.getValue(), now);
+                h.stash.put(uuid, e.getKey(), e.getValue());
                 if (lost) {
                     s.publisher.publish(lost(world, uuid, e.getKey(), e.getValue(), ItemsLost.How.STASHED, at));
                 }
@@ -128,7 +156,7 @@ final class InventoryHook extends AnyKindPlayerSystem<InventoryChangeEvent> {
             boolean lost = s.publisher.wants(EventKind.ITEMS_LOST);
             boolean drop = !h.dropEventFires && s.publisher.wants(EventKind.ITEM_DROPPED);
             for (Map.Entry<String, Long> e : t.dropped.entrySet()) {
-                h.stash.record(uuid, e.getKey(), e.getValue(), now);
+                h.stash.put(uuid, e.getKey(), e.getValue());
                 h.drops.record(uuid, e.getKey(), e.getValue(), now);
                 if (lost) {
                     s.publisher.publish(lost(world, uuid, e.getKey(), e.getValue(),
@@ -139,22 +167,29 @@ final class InventoryHook extends AnyKindPlayerSystem<InventoryChangeEvent> {
                 }
             }
         }
-        if (t.fromContainer != null) {
+        if (t.fromContainer != null || t.fromPlaced != null) {
             RecentContainers.Use at = h.blocks.containers().recent(uuid, now);
-            for (Map.Entry<String, Long> e : t.fromContainer.entrySet()) {
-                gain(world, uuid, e.getKey(), e.getValue(), ItemsGained.Source.CONTAINER, at, now);
+            if (t.fromPlaced != null) {
+                for (Map.Entry<String, Long> e : t.fromPlaced.entrySet()) {
+                    gain(world, uuid, e.getKey(), e.getValue(), ItemsGained.Source.CONTAINER, at, true);
+                }
+            }
+            if (t.fromContainer != null) {
+                for (Map.Entry<String, Long> e : t.fromContainer.entrySet()) {
+                    gain(world, uuid, e.getKey(), e.getValue(), ItemsGained.Source.CONTAINER, at, false);
+                }
             }
         }
         if (t.gained != null) {
             for (Map.Entry<String, Long> e : t.gained.entrySet()) {
-                gain(world, uuid, e.getKey(), e.getValue(), h.sourceOf(uuid, e.getKey(), now), null, now);
+                gain(world, uuid, e.getKey(), e.getValue(), h.sourceOf(uuid, e.getKey(), now), null, false);
             }
         }
     }
 
     private void gain(String world, UUID uuid, String itemId, long amount, ItemsGained.Source source,
-                      RecentContainers.Use at, long now) {
-        long fresh = amount - h.stash.take(uuid, itemId, amount, now);
+                      RecentContainers.Use at, boolean placedContainer) {
+        long fresh = h.stash.fresh(uuid, itemId, amount, placedContainer);
         if (!s.publisher.wants(EventKind.ITEMS_GAINED)) {
             return;
         }
@@ -260,27 +295,42 @@ final class InventoryHook extends AnyKindPlayerSystem<InventoryChangeEvent> {
     /** What one change moved, item id to amount. Made on the first countable slot, each map on first use. */
     private static final class Totals {
         Map<String, Long> gained;
+        /** Out of a world generated or unknown container, or a processing bench's output. */
         Map<String, Long> fromContainer;
+        /** Out of a container block a player placed, never fresh. */
+        Map<String, Long> fromPlaced;
         Map<String, Long> stashed;
         Map<String, Long> dropped;
     }
 
-    private Totals walk(Transaction transaction, boolean topLevel, boolean fromContainer, Ref<EntityStore> ref,
+    /**
+     * Totals one change. In Creative only the moves matter, so the balance follows deposits, and the walk
+     * does not look up where items came from.
+     */
+    private Totals walk(Transaction transaction, boolean topLevel, boolean creative, Ref<EntityStore> ref,
                         Store<EntityStore> store, Totals t) {
         if (transaction == null || !transaction.succeeded()) {
             return t;
         }
         if (transaction instanceof MoveTransaction<?> move) {
-            if (ownedByPlayer(move.getOtherContainer(), ref, store)) {
+            ItemContainer other = move.getOtherContainer();
+            if (ownedByPlayer(other, ref, store)) {
                 return t; // a rearrangement inside the player's own inventory
             }
-            if (move.getMoveType() == MoveType.MOVE_TO_SELF) {
-                return walk(move.getAddTransaction(), false, true, ref, store, t);
+            MoveSides sides = MoveSides.of(move);
+            if (sides == null) {
+                return t;
             }
-            Counted gone = removed(move.getRemoveTransaction());
-            if (gone != null) {
-                t = totals(t);
-                t.stashed = note(t.stashed, gone);
+            t = totals(t);
+            if (sides.left != null) {
+                t.stashed = merge(t.stashed, sides.left);
+            }
+            if (sides.arrived != null) {
+                if (!creative && placedSource(other, MoveSides.otherSlot(move), ref, store)) {
+                    t.fromPlaced = merge(t.fromPlaced, sides.arrived);
+                } else {
+                    t.fromContainer = merge(t.fromContainer, sides.arrived);
+                }
             }
             return t;
         }
@@ -290,21 +340,21 @@ final class InventoryHook extends AnyKindPlayerSystem<InventoryChangeEvent> {
         }
         if (transaction instanceof ListTransaction<?> list) {
             for (Transaction part : list.getList()) {
-                t = walk(part, false, fromContainer, ref, store, t);
+                t = walk(part, false, creative, ref, store, t);
             }
             return t;
         }
         if (transaction instanceof ItemStackTransaction stack) {
             if (stack.getAction() != null && stack.getAction().isAdd()) {
                 for (ItemStackSlotTransaction part : stack.getSlotTransactions()) {
-                    t = addGain(t, added(part), fromContainer);
+                    t = addGain(t, added(part));
                 }
             }
             return t;
         }
         if (transaction instanceof ItemStackSlotTransaction slot) {
             if (slot.getAction() != null && slot.getAction().isAdd()) {
-                t = addGain(t, added(slot), fromContainer);
+                t = addGain(t, added(slot));
             } else if (topLevel && slot.getAction() == ActionType.REMOVE && slot.getQuery() == null) {
                 t = drop(t, removed(slot)); // the drop key
             }
@@ -313,7 +363,7 @@ final class InventoryHook extends AnyKindPlayerSystem<InventoryChangeEvent> {
         if (transaction.getClass() == SlotTransaction.class) {
             SlotTransaction slot = (SlotTransaction) transaction;
             if (slot.getAction() != null && slot.getAction().isAdd()) {
-                t = addGain(t, added(slot), fromContainer);
+                t = addGain(t, added(slot));
             } else if (topLevel && slot.getAction() == ActionType.REMOVE) {
                 t = drop(t, removed(slot)); // a whole stack leaving, such as death drops
             }
@@ -325,16 +375,12 @@ final class InventoryHook extends AnyKindPlayerSystem<InventoryChangeEvent> {
         return t != null ? t : new Totals();
     }
 
-    private static Totals addGain(Totals t, Counted counted, boolean fromContainer) {
+    private static Totals addGain(Totals t, Counted counted) {
         if (counted == null) {
             return t;
         }
         t = totals(t);
-        if (fromContainer) {
-            t.fromContainer = note(t.fromContainer, counted);
-        } else {
-            t.gained = note(t.gained, counted);
-        }
+        t.gained = note(t.gained, counted);
         return t;
     }
 
@@ -345,6 +391,94 @@ final class InventoryHook extends AnyKindPlayerSystem<InventoryChangeEvent> {
         t = totals(t);
         t.dropped = note(t.dropped, counted);
         return t;
+    }
+
+    private static Map<String, Long> merge(Map<String, Long> totals, Map<String, Long> more) {
+        if (totals == null) {
+            return more;
+        }
+        more.forEach((id, amount) -> totals.merge(id, amount, Long::sum));
+        return totals;
+    }
+
+    // ---- where a container move came from ---------------------------------------------------------------
+
+    /**
+     * True when the items came out of a container block some player placed, and not out of a processing
+     * bench's output slots. The block is found through the player's open windows, a container block window or
+     * a processing bench window whose container is the move's other side. The engine puts
+     * {@code PlacedByInteractionComponent} on every block with block data a player places and saves it with
+     * the chunk [javap 0.7.2 BlockPlaceUtils], so a chest placed before TrackerAPI was installed is known too.
+     * Anything else, crafting windows, item containers, other plugins' windows and every failure, answers
+     * false, which leaves the gain to the balance.
+     */
+    private boolean placedSource(ItemContainer other, int otherSlot, Ref<EntityStore> ref, Store<EntityStore> store) {
+        try {
+            Player player = store.getComponent(ref, Player.getComponentType());
+            WindowManager manager = player != null ? player.getWindowManager() : null;
+            if (manager == null) {
+                return false;
+            }
+            for (Window window : manager.getWindows()) {
+                boolean chest = window instanceof ContainerBlockWindow;
+                if (!(window instanceof BlockWindow block) || !(window instanceof ItemContainerWindow holder)) {
+                    continue;
+                }
+                ItemContainer mine = holder.getItemContainer();
+                if (mine == null || !(mine == other || mine.containsContainer(other) || other.containsContainer(mine))) {
+                    continue;
+                }
+                World world = worldOf(store);
+                if (world == null) {
+                    return false;
+                }
+                int x = block.getX();
+                int y = block.getY();
+                int z = block.getZ();
+                if (!chest) {
+                    ProcessingBenchBlock bench = bench(world, x, y, z);
+                    if (bench == null || benchOutput(bench, other, otherSlot)) {
+                        return false; // not a plain container or a bench's output, the balance decides
+                    }
+                }
+                PlacedByInteractionComponent placed = BlockModule.getComponent(
+                        PlacedByInteractionComponent.getComponentType(), world, x, y, z);
+                return placed != null && placed.getWhoPlacedUuid() != null;
+            }
+        } catch (RuntimeException | LinkageError e) {
+            return false;
+        }
+        return false;
+    }
+
+    /** The processing bench at a spot, or null when there is none or the crafting module is missing. */
+    private static ProcessingBenchBlock bench(World world, int x, int y, int z) {
+        try {
+            return BlockModule.getComponent(ProcessingBenchBlock.getComponentType(), world, x, y, z);
+        } catch (RuntimeException | LinkageError e) {
+            return null;
+        }
+    }
+
+    /**
+     * True when a move out of a processing bench came from its output slots, or when that cannot be told,
+     * since an output is counted against the balance, which is never more than the player put in. The window
+     * moves through the bench's combined container, input, fuel and output in that order, and names the
+     * combined slot.
+     */
+    static boolean benchOutput(ProcessingBenchBlock bench, ItemContainer other, int otherSlot) {
+        ItemContainer output = bench.getOutputContainer();
+        if (output == null || other == output) {
+            return true;
+        }
+        if (other == bench.getInputContainer() || other == bench.getFuelContainer()) {
+            return false;
+        }
+        CombinedItemContainer combined = bench.getItemContainer();
+        if (other == combined && otherSlot >= 0 && otherSlot < combined.getCapacity()) {
+            return combined.getContainerForSlot((short) otherSlot) == output;
+        }
+        return true;
     }
 
     /** True when the container is one of this player's own inventory sections or a view over them. */

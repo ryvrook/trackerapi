@@ -1,5 +1,7 @@
 package dev.ryvrook.trackerapi.counters;
 
+import dev.ryvrook.trackerapi.api.Keys;
+
 import com.hypixel.hytale.logger.HytaleLogger;
 
 import java.util.AbstractMap;
@@ -36,7 +38,7 @@ public final class Boards {
     }
 
     public void watch(String key) {
-        if (key != null && !key.isEmpty() && key.length() <= 128) {
+        if (key != null && !key.isEmpty() && key.length() <= 128 && !Keys.isHidden(key)) {
             watched.add(key);
         }
     }

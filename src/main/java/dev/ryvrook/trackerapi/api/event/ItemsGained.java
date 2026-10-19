@@ -5,7 +5,7 @@ import dev.ryvrook.trackerapi.api.Header;
 import dev.ryvrook.trackerapi.api.TrackerEvent;
 
 /**
- * Items landed in a player's own inventory from outside it, a pickup, loot, a crafted result or a container. Moves inside the player's own inventory never count. {@code fresh} is the part not taken back out of a container or off the ground where the player had put it recently.
+ * Items landed in a player's own inventory from outside it, a pickup, loot, a crafted result or a container. Moves inside the player's own inventory never count. {@code fresh} is the part that is new to the player. Whatever the player put into another container or dropped and has not taken back yet is not fresh, with no time limit and across restarts. Items out of a container block some player placed are never fresh, except the output of a processing bench. {@code quantity} is always the full amount that moved.
  *
  * <p>{@code atBlock} is true when the player used a container block in the last 30 seconds, and the block
  * coordinates then name it, so a consumer can tell which chest the items went into or came out of.

@@ -11,7 +11,7 @@ import java.util.concurrent.ConcurrentHashMap;
 /**
  * Items each player let go of in a recent window, by item id and count, oldest first. Taking the same
  * items back takes from here first, so a stack put down and picked up again is not counted as new. The
- * Feats {@code RecentDrops} shape, shared by {@link RecentDrops} and {@link RecentStash}. Safe from any
+ * Feats {@code RecentDrops} shape, used by {@link RecentDrops}. Safe from any
  * thread, each player's map is guarded by itself.
  */
 public abstract class ItemLedger {
