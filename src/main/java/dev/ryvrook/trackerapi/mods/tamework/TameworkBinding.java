@@ -46,7 +46,14 @@ import java.util.logging.Level;
  * <p>The API object is null for a while after Tamework enables, since it is assembled by an async setup step, and
  * null again after Tamework shuts down. A bind that finds it null is not a failed bind. The classes and handles
  * resolve as features at once, the subscriptions wait, and a retry on the timer every {@link #RETRY_SECONDS}
- * seconds for up to {@link #RETRY_ATTEMPTS} tries completes them when the API appears.
+ * seconds completes them when the API appears. After {@link #RETRY_ATTEMPTS} tries the waiting features are
+ * switched off, so {@code missing()} says what is not subscribed, and the retry goes on every
+ * {@link #SLOW_RETRY_SECONDS} seconds without a limit, bringing them back when the API finally appears.
+ *
+ * <p>Threads. The bus and feed callbacks arrive on Tamework's publishing thread. The owned companion count is a
+ * read of the mod's population index, which the contract allows from any thread, so it is read on the timer
+ * thread every {@link #REFRESH_SECONDS} seconds for everyone online and on the dispatch thread when a player
+ * joins. Nothing else of the mod is called off its own threads.
  *
  * <p>Animal Husbandry has no classes. When it is enabled its version is a fact, {@code tamework.husbandry}.
  */
@@ -71,6 +78,7 @@ public final class TameworkBinding extends AbstractBinding {
 
     static final long RETRY_SECONDS = 5;
     static final int RETRY_ATTEMPTS = 24;
+    static final long SLOW_RETRY_SECONDS = 60;
     static final long REFRESH_SECONDS = 60;
 
     static final String ACTION_BREED = "tamework:breed_success";
@@ -96,6 +104,8 @@ public final class TameworkBinding extends AbstractBinding {
     private volatile ScheduledFuture<?> retry;
     private volatile ScheduledFuture<?> refresh;
     private int attempts;
+    /** True once the retry window passed and the slow cadence took over. */
+    private volatile boolean slow;
     private volatile String husbandryVersion;
     private volatile Progression progression;
     private volatile Population population;
@@ -235,6 +245,7 @@ public final class TameworkBinding extends AbstractBinding {
     private void letGo() {
         cancel(retry);
         retry = null;
+        slow = false;
         cancel(refresh);
         refresh = null;
         for (AutoCloseable c : closers) {
@@ -269,6 +280,7 @@ public final class TameworkBinding extends AbstractBinding {
 
     private void startRetry() {
         attempts = 0;
+        slow = false;
         log.at(Level.FINE).log("TrackerAPI found %s before its API was ready and looks again every %d s for %d s",
                 name(), RETRY_SECONDS, RETRY_SECONDS * RETRY_ATTEMPTS);
         retry = services.timer.scheduleAtFixedRate(this::retryTick, RETRY_SECONDS, RETRY_SECONDS, TimeUnit.SECONDS);
@@ -277,6 +289,11 @@ public final class TameworkBinding extends AbstractBinding {
     /** True while the binding waits for the API to appear. */
     boolean retrying() {
         return retry != null;
+    }
+
+    /** True once the retry window passed and the binding looks every {@link #SLOW_RETRY_SECONDS} seconds instead. */
+    boolean retryingSlowly() {
+        return retry != null && slow;
     }
 
     /** One look for the API that was null at bind. Package private so a test can drive it in place of the timer. */
@@ -295,11 +312,8 @@ public final class TameworkBinding extends AbstractBinding {
             }
             if (found == null) {
                 attempts++;
-                if (attempts >= RETRY_ATTEMPTS) {
-                    cancel(retry);
-                    retry = null;
-                    log.at(Level.FINE).log("TrackerAPI gave up waiting for the %s API after %d s, it binds again when %s reloads",
-                            name(), RETRY_SECONDS * RETRY_ATTEMPTS, name());
+                if (!slow && attempts >= RETRY_ATTEMPTS) {
+                    slowDown();
                 }
                 return;
             }
@@ -308,20 +322,35 @@ public final class TameworkBinding extends AbstractBinding {
             api = found;
             checkVersion(found);
             for (Pending p : pending) {
-                try {
-                    p.step().resolve();
-                } catch (Throwable t) {
-                    log.at(Level.FINE).withCause(t).log("TrackerAPI %s binding could not complete %s", name(), p.feature());
-                    off(p.feature());
-                }
+                // feature() lists it again under features when the step resolves, also after a slow down took it off
+                feature(p.feature(), p.step());
             }
             pending.clear();
             afterAttach();
-            log.at(Level.FINE).log("TrackerAPI completed the %s binding, its API appeared after %d s", name(), attempts * RETRY_SECONDS);
+            log.at(Level.FINE).log("TrackerAPI completed the %s binding, its API appeared after %d s", name(),
+                    slow ? RETRY_SECONDS * RETRY_ATTEMPTS + (attempts - RETRY_ATTEMPTS) * SLOW_RETRY_SECONDS : attempts * RETRY_SECONDS);
         }
     }
 
-    /** Once the API is there: the facts for everyone online and the periodic count refresh. */
+    /**
+     * The retry window passed without the API. The features that wait for it are switched off, so the status and
+     * {@code missing()} say what is not subscribed, and the look goes on at the slow cadence without a limit.
+     */
+    private void slowDown() {
+        slow = true;
+        cancel(retry);
+        for (Pending p : pending) {
+            off(p.feature(), "until the API appears, TrackerAPI looks again every " + SLOW_RETRY_SECONDS + " s");
+        }
+        log.at(Level.INFO).log("TrackerAPI waited %d s for the %s API without finding it and looks again every %d s",
+                RETRY_SECONDS * RETRY_ATTEMPTS, name(), SLOW_RETRY_SECONDS);
+        retry = services.timer.scheduleAtFixedRate(this::retryTick, SLOW_RETRY_SECONDS, SLOW_RETRY_SECONDS, TimeUnit.SECONDS);
+    }
+
+    /**
+     * Once the API is there: the facts for everyone online and the periodic count refresh. Timer thread, the count
+     * is a population index read the contract allows from any thread.
+     */
     private void afterAttach() {
         for (PlayerRegistry.Online o : services.players.all()) {
             seed(o.uuid);
@@ -709,7 +738,13 @@ public final class TameworkBinding extends AbstractBinding {
         }
     }
 
-    /** Reads the owned companion count of an online player into the {@code tamework.companions} fact. */
+    /**
+     * Reads the owned companion count of an online player into the {@code tamework.companions} fact. A read of the
+     * mod's population index, which the contract allows from any thread, so this runs on the timer thread (the
+     * refresh), the dispatch thread (a join) and the publishing thread (after a tame or a death) alike. The
+     * durable count is asked first, since it covers every companion the player owns, the loaded count is a count
+     * over the NPCs loaded right now and stands in when the durable one is empty.
+     */
     private void refreshCount(UUID owner) {
         Population p = population;
         Object a = api;
@@ -722,9 +757,9 @@ public final class TameworkBinding extends AbstractBinding {
                 return;
             }
             Set<String> groups = Set.copyOf(p.groupIds());
-            Object n = p.loaded().invoke(pop, owner, groups);
+            Object n = p.durable().invoke(pop, owner, groups);
             if (!(n instanceof OptionalLong o) || o.isEmpty()) {
-                n = p.durable().invoke(pop, owner, groups);
+                n = p.loaded().invoke(pop, owner, groups);
             }
             if (n instanceof OptionalLong o && o.isPresent()) {
                 fact(owner, "companions", Long.toString(o.getAsLong()));
@@ -732,6 +767,7 @@ public final class TameworkBinding extends AbstractBinding {
         });
     }
 
+    /** The timer thread, every {@link #REFRESH_SECONDS} seconds, an index read per online player. */
     private void refreshAll() {
         if (!isBound()) {
             return;
@@ -743,6 +779,7 @@ public final class TameworkBinding extends AbstractBinding {
 
     // ---- players ------------------------------------------------------------------------------------------
 
+    /** The dispatch thread of TrackerAPI's PLAYER_JOINED, the Husbandry fact and one index read. */
     private void onJoin(UUID player) {
         if (player == null || !isBound()) {
             return;

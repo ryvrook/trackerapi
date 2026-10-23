@@ -43,15 +43,26 @@ final class RunTable {
 
     private final Map<String, WorldRun> worlds = new ConcurrentHashMap<>();
 
+    /** A hook between the lookup and the lock, null outside tests, where it stands in for a racing exit. */
+    Runnable afterLookup;
+
     Entered enter(String world, String dungeonId, String mode, UUID player, long now) {
-        WorldRun run = worlds.computeIfAbsent(world, w -> new WorldRun(dungeonId, mode));
-        synchronized (run) {
-            if (mode != null) {
-                run.mode = mode;
+        for (;;) {
+            WorldRun run = worlds.computeIfAbsent(world, w -> new WorldRun(dungeonId, mode));
+            if (afterLookup != null) {
+                afterLookup.run();
             }
-            boolean first = run.enteredAt.putIfAbsent(player, now) == null;
-            run.inside.add(player);
-            return new Entered(first, run.enteredAt.size());
+            synchronized (run) {
+                if (worlds.get(world) != run) {
+                    continue; // the last player left under us and the entry went, start a fresh run
+                }
+                if (mode != null) {
+                    run.mode = mode;
+                }
+                boolean first = run.enteredAt.putIfAbsent(player, now) == null;
+                run.inside.add(player);
+                return new Entered(first, run.enteredAt.size());
+            }
         }
     }
 

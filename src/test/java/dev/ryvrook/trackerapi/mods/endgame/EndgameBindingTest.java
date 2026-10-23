@@ -70,6 +70,29 @@ class EndgameBindingTest {
             return "6.0.4";
         }
     };
+    /** The world seam, runs the seed on the calling thread for everyone online and counts the posts. */
+    private final class FakeWorlds implements EndgameBinding.Worlds {
+        int all;
+        int one;
+
+        @Override
+        public void seedAll(java.util.function.Consumer<UUID> seed) {
+            all++;
+            for (var o : services.players.all()) {
+                seed.accept(o.uuid);
+            }
+        }
+
+        @Override
+        public void seedOne(UUID uuid, java.util.function.Consumer<UUID> seed) {
+            if (services.players.isOnline(uuid)) {
+                one++;
+                seed.accept(uuid);
+            }
+        }
+    }
+
+    private final FakeWorlds worlds = new FakeWorlds();
     private EndgameBinding binding;
     private ModBindings mods;
     private final List<TrackerEvent> seen = new CopyOnWriteArrayList<>();
@@ -84,7 +107,7 @@ class EndgameBindingTest {
         join(P, "Alder");
         join(Q, "Birch");
         services.publisher.subscribe("test", null, Delivery.SYNC, seen::add);
-        binding = new EndgameBinding(NAMES);
+        binding = new EndgameBinding(NAMES, worlds);
         mods = new ModBindings(List.of(binding), plugins);
         mods.attach(services);
         loader = FakeMods.loader();
@@ -377,6 +400,8 @@ class EndgameBindingTest {
             byCategory.merge(m.category(), 1, Integer::sum);
         }
         assertEquals(Map.of("bestiary", 2, "rune", 1), byCategory);
+        assertEquals(1, worlds.all, "the bind time seed went to the worlds once");
+        assertEquals(0, worlds.one);
         assertEquals(1, counter(P, "endgame:bestiary:Goblin_Scrapper"));
         assertEquals(1, counter(P, "endgame:bestiary:Trork_Warrior"));
         assertEquals(2, counter(P, "endgame:bestiaries"));
@@ -391,6 +416,7 @@ class EndgameBindingTest {
         services.publisher.publish(new PlayerJoined(TestSupport.header("default", Q), "Birch", false));
         services.publisher.publish(new PlayerJoined(TestSupport.header("default", P), "Alder", false));
         services.dispatcher.drainHere();
+        assertEquals(2, worlds.one, "each join posted one seed to the player's world");
         List<ModMilestone> afterJoin = seen(ModMilestone.class).subList(3, seen(ModMilestone.class).size());
         assertEquals(1, afterJoin.size());
         assertEquals(Q, afterJoin.get(0).player());
@@ -406,6 +432,41 @@ class EndgameBindingTest {
         services.publisher.publish(new PlayerJoined(TestSupport.header("default", P), "Alder", false));
         services.dispatcher.drainHere();
         assertEquals(12, counter(P, "endgame:combo_best"));
+    }
+
+    @Test
+    void seedWaitsForThePlayerFileInsteadOfPublishingEveryMilestoneAgain() throws Throwable {
+        bind();
+        component(Q, List.of("Goblin_Scrapper"), List.of("rune_frost"), 6);
+        // Q's counter file is still being read, the counters answer 0 for everything until the merge
+        services.counters.live(Q).setMerged(false);
+        services.publisher.publish(new PlayerJoined(TestSupport.header("default", Q), "Birch", false));
+        services.dispatcher.drainHere();
+        assertTrue(seen(ModMilestone.class).isEmpty(), "nothing is published while the file is unread");
+        assertEquals(0, counter(Q, "endgame:combo_best"));
+        assertEquals(1, binding.deferredSeeds());
+        // the timer fires before the merge landed, the seed waits on
+        binding.retryDeferred();
+        assertTrue(seen(ModMilestone.class).isEmpty());
+        assertEquals(1, binding.deferredSeeds());
+        // the merge lands, the next retry seeds
+        services.counters.live(Q).setMerged(true);
+        services.counters.live(Q).set("endgame:bestiary:Goblin_Scrapper", 1L);
+        binding.retryDeferred();
+        List<ModMilestone> seeded = seen(ModMilestone.class);
+        assertEquals(1, seeded.size(), "the creature was in the file, only the rune is new");
+        assertEquals("rune", seeded.get(0).category());
+        assertEquals(Q, seeded.get(0).player());
+        assertEquals(6, counter(Q, "endgame:combo_best"));
+        assertEquals(0, binding.deferredSeeds());
+        // a retry with nothing deferred is harmless, and unbind drops the list
+        binding.retryDeferred();
+        services.counters.live(Q).setMerged(false);
+        services.publisher.publish(new PlayerJoined(TestSupport.header("default", Q), "Birch", false));
+        services.dispatcher.drainHere();
+        assertEquals(1, binding.deferredSeeds());
+        binding.unbind("gone");
+        assertEquals(0, binding.deferredSeeds());
     }
 
     @Test
@@ -451,7 +512,7 @@ class EndgameBindingTest {
                 ROOT + ".plugin.events.domain.GameEvent$Missing", NAMES.dungeonEnter(), NAMES.arenaApi(),
                 NAMES.arenaCallbacks(), NAMES.component(), NAMES.bestiaryState(), NAMES.bestiaryEntry(), NAMES.runeState());
         mods.stop();
-        binding = new EndgameBinding(broken);
+        binding = new EndgameBinding(broken, worlds);
         mods = new ModBindings(List.of(binding), plugins);
         mods.attach(services);
         bind();
@@ -482,7 +543,7 @@ class EndgameBindingTest {
                 NAMES.bossKill(), NAMES.achievementUnlock(), NAMES.dungeonEnter(), NAMES.arenaApi(),
                 NAMES.arenaCallbacks(), NAMES.component(), NAMES.bestiaryState(), NAMES.bestiaryEntry(), NAMES.runeState());
         mods.stop();
-        binding = new EndgameBinding(broken);
+        binding = new EndgameBinding(broken, worlds);
         mods = new ModBindings(List.of(binding), plugins);
         mods.attach(services);
         bind();

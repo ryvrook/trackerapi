@@ -9,7 +9,7 @@ import dev.ryvrook.trackerapi.api.Subscription;
 import dev.ryvrook.trackerapi.api.event.DungeonRun;
 import dev.ryvrook.trackerapi.api.event.ModBossDefeated;
 import dev.ryvrook.trackerapi.api.event.ModMilestone;
-import dev.ryvrook.trackerapi.facts.PlayerRegistry;
+import dev.ryvrook.trackerapi.counters.PlayerCounters;
 import dev.ryvrook.trackerapi.mods.AbstractBinding;
 import dev.ryvrook.trackerapi.mods.Handles;
 
@@ -20,6 +20,9 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ScheduledFuture;
+import java.util.concurrent.TimeUnit;
 import java.util.function.Consumer;
 import java.util.logging.Level;
 
@@ -27,8 +30,16 @@ import java.util.logging.Level;
  * The binding to Endgame and QoL. Boss kills, achievement unlocks and dungeon entries come from the plugin's own
  * {@code GameEventBus}, which takes a plain {@code Consumer} and returns an engine {@code Registration}. Trials
  * come from the wave arena callbacks through a proxy. Bestiary discoveries, runes found and the combo personal
- * best are read from the per player component at bind and when a player joins, a concurrent map lookup the
- * contract allows from any thread.
+ * best are read from the per player component at bind and when a player joins.
+ *
+ * <p>Threads. {@link #resolve} runs on the timer thread and only registers. The bus consumers and the arena proxy
+ * run on whatever thread the mod fires them, world threads mostly, and publish from there. The seeds are posted
+ * to the player's own world thread through {@link Worlds}: the bind time seed from the timer thread, one task per
+ * world, and the join seed from the dispatch thread of TrackerAPI's PLAYER_JOINED. Of the component only
+ * {@code getPlayerComponent(uuid)} is a concurrent map read, the bestiary entries and the runes found behind it are
+ * plain maps the mod writes on the world thread, so they are read there and nowhere else. A seed that finds the
+ * player's counter file still being read is deferred to the timer and posted again, so a milestone the player
+ * already has is not published a second time.
  *
  * <p>Nothing here touches the mod's database, its leaderboard store, its telemetry or any write method.
  */
@@ -80,25 +91,43 @@ public final class EndgameBinding extends AbstractBinding {
         void accept(Object event) throws Throwable;
     }
 
-    private final Names names;
-    final TrialTimes trials = new TrialTimes();
+    /** Posts the seed reads to the world thread that owns the player. {@link EngineWorlds} in production. */
+    public interface Worlds {
+        /** Runs {@code seed} for every online player, on the thread of the world each one is in. Any thread in. */
+        void seedAll(Consumer<UUID> seed);
 
-    private volatile Object plugin;
-    private MethodHandle getComponent;
-    private MethodHandle getBestiary;
-    private MethodHandle getEntries;
-    private MethodHandle isDiscovered;
-    private MethodHandle getRunes;
-    private MethodHandle getFound;
-    private MethodHandle getComboBest;
-
-    public EndgameBinding() {
-        this(Names.PRODUCTION);
+        /** Runs {@code seed} for one player on the thread of their world. Nothing for a player who is gone. */
+        void seedOne(UUID uuid, Consumer<UUID> seed);
     }
 
-    public EndgameBinding(Names names) {
+    /** The plugin instance and the handles of the seed reads, one object so a reader sees all of a bind or none. */
+    private record Seeds(Object plugin, MethodHandle getComponent, MethodHandle getBestiary, MethodHandle getEntries,
+                         MethodHandle isDiscovered, MethodHandle getRunes, MethodHandle getFound, MethodHandle getComboBest) {
+    }
+
+    /** Milliseconds before a seed that found the player's file unread is posted again. */
+    static final long SEED_RETRY_MILLIS = 2_000;
+    /** Retries of one player's seed before it is given up, the file read takes far less. */
+    static final int SEED_RETRIES = 15;
+
+    private final Names names;
+    private final Worlds worlds;
+    final TrialTimes trials = new TrialTimes();
+
+    private volatile Seeds seeds;
+    /** Players whose seed waits for their counter file, with the tries so far. */
+    private final Map<UUID, Integer> deferred = new ConcurrentHashMap<>();
+    private final Object deferLock = new Object();
+    private ScheduledFuture<?> deferTimer;
+
+    public EndgameBinding() {
+        this(Names.PRODUCTION, EngineWorlds.LIVE);
+    }
+
+    public EndgameBinding(Names names, Worlds worlds) {
         super(ID, PLUGIN_ID, NAME);
         this.names = names;
+        this.worlds = worlds;
     }
 
     @Override
@@ -112,7 +141,7 @@ public final class EndgameBinding extends AbstractBinding {
                 StatSpec.sum(ModKeys.key(ID, ModKeys.BOSSES), "Boss kills"),
                 StatSpec.perId(ModKeys.key(ID, ModKeys.BOSSES), "Boss kills by boss", "Boss"),
                 StatSpec.count(ModKeys.key(ID, ModKeys.plural(CAT_ACHIEVEMENT)), "Achievements"),
-                StatSpec.perId(ModKeys.key(ID, CAT_ACHIEVEMENT), "Achievements by id", "Achievement"),
+                StatSpec.discovery(ModKeys.key(ID, CAT_ACHIEVEMENT), "Achievements by id", "Achievement"),
                 StatSpec.sum(ModKeys.key(ID, ModKeys.RUNS), "Dungeon entries"),
                 StatSpec.perId(ModKeys.key(ID, ModKeys.RUNS), "Dungeon entries by dungeon", "Dungeon"),
                 StatSpec.sum(ModKeys.key(ID, ModKeys.CLEARED), "Trials completed"),
@@ -122,12 +151,12 @@ public final class EndgameBinding extends AbstractBinding {
                 StatSpec.sum(ModKeys.key(ID, ModKeys.FAILED), "Trials failed"),
                 StatSpec.perId(ModKeys.key(ID, ModKeys.FAILED), "Trials failed by arena", "Arena"),
                 StatSpec.count(ModKeys.key(ID, ModKeys.plural(CAT_WAVE)), "Waves cleared"),
-                StatSpec.perId(ModKeys.key(ID, CAT_WAVE), "Waves cleared by arena and wave", "Wave"),
+                StatSpec.discovery(ModKeys.key(ID, CAT_WAVE), "Waves cleared by arena and wave", "Wave"),
                 StatSpec.max(ModKeys.key(ID, WAVE_BEST), "Highest wave"),
                 StatSpec.count(ModKeys.key(ID, ModKeys.plural(CAT_BESTIARY)), "Bestiary entries"),
-                StatSpec.perId(ModKeys.key(ID, CAT_BESTIARY), "Bestiary by creature", "Creature"),
+                StatSpec.discovery(ModKeys.key(ID, CAT_BESTIARY), "Bestiary by creature", "Creature"),
                 StatSpec.count(ModKeys.key(ID, ModKeys.plural(CAT_RUNE)), "Runes found"),
-                StatSpec.perId(ModKeys.key(ID, CAT_RUNE), "Runes by id", "Rune"),
+                StatSpec.discovery(ModKeys.key(ID, CAT_RUNE), "Runes by id", "Rune"),
                 StatSpec.max(ModKeys.key(ID, COMBO_BEST), "Best combo"));
     }
 
@@ -135,17 +164,10 @@ public final class EndgameBinding extends AbstractBinding {
     protected void resolve(Object plugin) throws Throwable {
         Class<?> pluginType = Handles.type(loader, names.plugin());
         Class<?> registration = Handles.type(loader, REGISTRATION);
-        this.plugin = plugin;
         onUnbind(() -> {
-            this.plugin = null;
-            getComponent = null;
-            getBestiary = null;
-            getEntries = null;
-            isDiscovered = null;
-            getRunes = null;
-            getFound = null;
-            getComboBest = null;
+            seeds = null;
             trials.clear();
+            cancelDeferred();
         });
 
         // The plugin's own bus, one per plugin instance. A failure here leaves the three bus features missing.
@@ -229,27 +251,33 @@ public final class EndgameBinding extends AbstractBinding {
             Object reg = register.invoke(proxy);
             onUnbind(() -> unregister(reg));
         });
-        boolean seeds = feature(F_SEEDS, () -> {
+        boolean seeded = feature(F_SEEDS, () -> {
             Class<?> component = Handles.type(loader, names.component());
             Class<?> bestiary = Handles.type(loader, names.bestiaryState());
             Class<?> entry = Handles.type(loader, names.bestiaryEntry());
             Class<?> runes = Handles.type(loader, names.runeState());
-            getComponent = Handles.virtual(pluginType, "getPlayerComponent", component, UUID.class);
-            getBestiary = Handles.virtual(component, "getBestiaryState", bestiary);
-            getEntries = Handles.virtual(bestiary, "getEntries", Map.class);
-            isDiscovered = Handles.virtual(entry, "isDiscovered", boolean.class);
-            getRunes = Handles.virtual(component, "getRuneCollection", runes);
-            getFound = Handles.virtual(runes, "getFound", Map.class);
-            getComboBest = Handles.virtual(component, "getComboPersonalBest", int.class);
+            seeds = new Seeds(plugin,
+                    Handles.virtual(pluginType, "getPlayerComponent", component, UUID.class),
+                    Handles.virtual(component, "getBestiaryState", bestiary),
+                    Handles.virtual(bestiary, "getEntries", Map.class),
+                    Handles.virtual(entry, "isDiscovered", boolean.class),
+                    Handles.virtual(component, "getRuneCollection", runes),
+                    Handles.virtual(runes, "getFound", Map.class),
+                    Handles.virtual(component, "getComboPersonalBest", int.class));
+            // the dispatch thread, which posts to the player's world
             Subscription joins = services.publisher.subscribe("mods/" + ID, Set.of(EventKind.PLAYER_JOINED), Delivery.ASYNC,
-                    e -> guard(F_SEEDS, () -> seed(e.player())));
+                    e -> worlds.seedOne(e.player(), this::seedOnWorld));
             onUnbind(joins::close);
         });
-        if (seeds) {
-            for (PlayerRegistry.Online o : services.players.all()) {
-                guard(F_SEEDS, () -> seed(o.uuid));
-            }
+        if (seeded) {
+            // the timer thread, one task per world with players
+            worlds.seedAll(this::seedOnWorld);
         }
+    }
+
+    @Override
+    protected void reset() {
+        deferred.clear();
     }
 
     // ---- the bus -----------------------------------------------------------------------------------------
@@ -368,28 +396,39 @@ public final class EndgameBinding extends AbstractBinding {
 
     // ---- seeds -------------------------------------------------------------------------------------------
 
+    /** The world thread entry of a seed, guarded. */
+    private void seedOnWorld(UUID uuid) {
+        guard(F_SEEDS, () -> seed(uuid));
+    }
+
     /**
      * Reads the player's component and publishes what TrackerAPI has not seen yet: each discovered bestiary
-     * entry and each rune found as a milestone, and the combo personal best raised into its counter. A player
-     * without a component yet, or offline, is skipped.
+     * entry and each rune found as a milestone, and the combo personal best raised into its counter. The thread
+     * of the player's world. A player without a component yet, or offline, is skipped. A player whose counter
+     * file has not merged yet would look as if they had seen nothing, so the seed is deferred instead.
      */
     private void seed(UUID uuid) throws Throwable {
-        Object p = plugin;
-        MethodHandle component = getComponent;
-        if (uuid == null || p == null || component == null || !online(uuid)) {
+        Seeds s = seeds;
+        if (uuid == null || s == null || !online(uuid)) {
             return;
         }
-        Object comp = component.invoke(p, uuid);
+        PlayerCounters counters = services.counters.live(uuid);
+        if (counters == null || !counters.isMerged()) {
+            defer(uuid);
+            return;
+        }
+        deferred.remove(uuid);
+        Object comp = s.getComponent().invoke(s.plugin(), uuid);
         if (comp == null) {
             return;
         }
         if (wants(EventKind.MOD_MILESTONE)) {
-            Object bestiary = getBestiary.invoke(comp);
-            Object entries = bestiary == null ? null : getEntries.invoke(bestiary);
+            Object bestiary = s.getBestiary().invoke(comp);
+            Object entries = bestiary == null ? null : s.getEntries().invoke(bestiary);
             if (entries instanceof Map<?, ?> m) {
                 for (Map.Entry<?, ?> e : m.entrySet()) {
                     String id = Handles.stringOf(e.getKey());
-                    if (id == null || e.getValue() == null || !Handles.boolOf(isDiscovered.invoke(e.getValue()), false)) {
+                    if (id == null || e.getValue() == null || !Handles.boolOf(s.isDiscovered().invoke(e.getValue()), false)) {
                         continue;
                     }
                     if (!seen(uuid, CAT_BESTIARY, id)) {
@@ -397,8 +436,8 @@ public final class EndgameBinding extends AbstractBinding {
                     }
                 }
             }
-            Object runes = getRunes.invoke(comp);
-            Object found = runes == null ? null : getFound.invoke(runes);
+            Object runes = s.getRunes().invoke(comp);
+            Object found = runes == null ? null : s.getFound().invoke(runes);
             if (found instanceof Map<?, ?> m) {
                 for (Object k : m.keySet()) {
                     String id = Handles.stringOf(k);
@@ -408,7 +447,7 @@ public final class EndgameBinding extends AbstractBinding {
                 }
             }
         }
-        int best = Handles.intOf(getComboBest.invoke(comp), 0);
+        int best = Handles.intOf(s.getComboBest().invoke(comp), 0);
         if (best > 0) {
             services.counters.raise(uuid, Keys.of(ID, COMBO_BEST), best);
         }
@@ -417,5 +456,51 @@ public final class EndgameBinding extends AbstractBinding {
     /** True when the player's counter for this milestone is already set. */
     private boolean seen(UUID uuid, String category, String id) {
         return services.counters.get(uuid, Keys.of(Keys.of(ID, category), id)) > 0;
+    }
+
+    // ---- deferred seeds ----------------------------------------------------------------------------------
+
+    /** Remembers the player and arms the timer once, so the seed is posted again after {@link #SEED_RETRY_MILLIS}. */
+    private void defer(UUID uuid) {
+        int tries = deferred.merge(uuid, 1, Integer::sum);
+        if (tries > SEED_RETRIES) {
+            deferred.remove(uuid);
+            log.at(Level.FINE).log("TrackerAPI gave up seeding %s from %s, the counter file did not merge in time", uuid, NAME);
+            return;
+        }
+        synchronized (deferLock) {
+            if (deferTimer == null) {
+                deferTimer = services.timer.schedule(this::retryDeferred, SEED_RETRY_MILLIS, TimeUnit.MILLISECONDS);
+            }
+        }
+    }
+
+    /** The timer thread. Posts every deferred seed to its world again. Package private so a test can drive it. */
+    void retryDeferred() {
+        synchronized (deferLock) {
+            deferTimer = null;
+        }
+        if (!has(F_SEEDS)) {
+            deferred.clear();
+            return;
+        }
+        for (UUID uuid : List.copyOf(deferred.keySet())) {
+            worlds.seedOne(uuid, this::seedOnWorld);
+        }
+    }
+
+    private void cancelDeferred() {
+        synchronized (deferLock) {
+            if (deferTimer != null) {
+                deferTimer.cancel(false);
+                deferTimer = null;
+            }
+        }
+        deferred.clear();
+    }
+
+    /** How many players wait for their counter file before the seed, for tests. */
+    int deferredSeeds() {
+        return deferred.size();
     }
 }

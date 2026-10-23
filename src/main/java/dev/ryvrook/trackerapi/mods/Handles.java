@@ -8,6 +8,8 @@ import java.lang.reflect.InvocationHandler;
 import java.lang.reflect.Method;
 import java.lang.reflect.Modifier;
 import java.lang.reflect.Proxy;
+import java.util.ArrayList;
+import java.util.List;
 
 /**
  * Reflection helpers for the mod bindings. Every class is loaded through the mod's class loader, every handle is
@@ -42,37 +44,75 @@ public final class Handles {
 
     /**
      * A public instance method found by name and parameter count, for a method whose parameter types are mod
-     * types the binding does not want to name. The first public method with that name and count wins.
+     * types the binding does not want to name. Bridge and synthetic methods are skipped. When several public
+     * methods share the name and count, the one whose parameter simple names equal {@code expected} wins, and
+     * without a single match the lookup throws rather than guess.
      */
-    public static MethodHandle virtualByName(Class<?> owner, String name, int params) throws ReflectiveOperationException {
-        Method found = null;
+    public static MethodHandle virtualByName(Class<?> owner, String name, int params, String... expected) throws ReflectiveOperationException {
+        return byName(owner, name, params, false, expected);
+    }
+
+    /** A public static method found by name and parameter count, with the same tie break as {@link #virtualByName}. */
+    public static MethodHandle statikByName(Class<?> owner, String name, int params, String... expected) throws ReflectiveOperationException {
+        return byName(owner, name, params, true, expected);
+    }
+
+    private static MethodHandle byName(Class<?> owner, String name, int params, boolean wantStatic, String[] expected)
+            throws ReflectiveOperationException {
+        List<Method> found = new ArrayList<>(2);
         for (Method m : owner.getMethods()) {
-            if (m.getName().equals(name) && m.getParameterCount() == params && !Modifier.isStatic(m.getModifiers())) {
-                found = m;
-                break;
+            if (!m.getName().equals(name) || m.getParameterCount() != params || Modifier.isStatic(m.getModifiers()) != wantStatic
+                    || m.isBridge() || m.isSynthetic()) {
+                continue;
+            }
+            if (!hasSameParameters(found, m)) {
+                found.add(m);
             }
         }
-        if (found == null) {
-            throw new NoSuchMethodException(owner.getName() + "." + name + "/" + params);
+        String what = owner.getName() + "." + name + "/" + params;
+        if (found.isEmpty()) {
+            throw new NoSuchMethodException(what);
         }
-        MethodHandle mh = MethodHandles.publicLookup().unreflect(found);
+        Method one = found.get(0);
+        if (found.size() > 1) {
+            one = null;
+            if (expected != null && expected.length == params) {
+                for (Method m : found) {
+                    if (parametersNamed(m, expected)) {
+                        if (one != null) {
+                            one = null;
+                            break;
+                        }
+                        one = m;
+                    }
+                }
+            }
+            if (one == null) {
+                throw new NoSuchMethodException(what + " is ambiguous, " + found.size() + " public methods match");
+            }
+        }
+        MethodHandle mh = MethodHandles.publicLookup().unreflect(one);
         return mh.asType(mh.type().generic());
     }
 
-    /** A public static method found by name and parameter count. */
-    public static MethodHandle statikByName(Class<?> owner, String name, int params) throws ReflectiveOperationException {
-        Method found = null;
-        for (Method m : owner.getMethods()) {
-            if (m.getName().equals(name) && m.getParameterCount() == params && Modifier.isStatic(m.getModifiers())) {
-                found = m;
-                break;
+    /** True when a method with the same parameter types is already in the list, an interface redeclaration. */
+    private static boolean hasSameParameters(List<Method> list, Method m) {
+        for (Method other : list) {
+            if (java.util.Arrays.equals(other.getParameterTypes(), m.getParameterTypes())) {
+                return true;
             }
         }
-        if (found == null) {
-            throw new NoSuchMethodException(owner.getName() + "." + name + "/" + params);
+        return false;
+    }
+
+    private static boolean parametersNamed(Method m, String[] expected) {
+        Class<?>[] types = m.getParameterTypes();
+        for (int i = 0; i < types.length; i++) {
+            if (!types[i].getSimpleName().equals(expected[i])) {
+                return false;
+            }
         }
-        MethodHandle mh = MethodHandles.publicLookup().unreflect(found);
-        return mh.asType(mh.type().generic());
+        return true;
     }
 
     /** A public static field's value, for an enum constant or a singleton holder. */

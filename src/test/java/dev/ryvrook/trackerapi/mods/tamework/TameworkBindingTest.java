@@ -249,8 +249,8 @@ class TameworkBindingTest {
         assertEquals(12.5, xp.get(0).amount());
         assertEquals("FEED", xp.get(0).source());
         assertEquals(P, xp.get(0).player());
-        assertEquals(13, counter(ModKeys.XP));
-        assertEquals(13, counter(ModKeys.XP, TameworkBinding.TRACK));
+        assertEquals(12, counter(ModKeys.XP), "the half point is carried until it adds up");
+        assertEquals(12, counter(ModKeys.XP, TameworkBinding.TRACK));
         assertTrue(seen(CompanionChanged.class).isEmpty());
 
         call(api, "fireXp", P, NPC, "Tamed_Horse", "HARVEST", 40.0, 3, 4, true);
@@ -270,7 +270,7 @@ class TameworkBindingTest {
         assertEquals(9, changes.get(1).level());
         assertEquals(9, counter(ModKeys.COMPANION_LEVEL_BEST));
         assertEquals(2, counter(ModKeys.COMPANION_LEVEL_UPS));
-        assertEquals(58, counter(ModKeys.XP));
+        assertEquals(57, counter(ModKeys.XP), "57.5 awarded, the half point is still carried");
     }
 
     @Test
@@ -345,15 +345,44 @@ class TameworkBindingTest {
     }
 
     @Test
-    void retryGivesUpAfterTheWindowAndStaysBound() {
+    void retryWindowPassedSwitchesTheWaitingFeaturesOffAndKeepsLookingSlowly() throws Exception {
         assertTrue(bind());
         for (int i = 0; i < TameworkBinding.RETRY_ATTEMPTS; i++) {
             assertTrue(binding.retrying());
+            assertFalse(binding.retryingSlowly());
             binding.retryTick();
         }
-        assertFalse(binding.retrying());
         assertTrue(binding.isBound());
+        assertTrue(binding.retrying(), "the look goes on");
+        assertTrue(binding.retryingSlowly(), "at the slow cadence");
+        assertEquals(List.of(TameworkBinding.F_CORE), binding.features(), "nothing is subscribed, so only the core stays listed");
+        assertEquals(List.of(TameworkBinding.F_LIFECYCLE, TameworkBinding.F_XP, TameworkBinding.F_ACTIVITY,
+                TameworkBinding.F_PROGRESSION, TameworkBinding.F_POPULATION), binding.missing());
+        // more ticks without the API change nothing
+        binding.retryTick();
+        binding.retryTick();
+        assertTrue(binding.retryingSlowly());
+        assertEquals(List.of(TameworkBinding.F_CORE), binding.features());
+
+        // the API appears late, the features come back
+        install();
+        binding.retryTick();
+        assertFalse(binding.retrying());
         assertEquals(ALL_FEATURES, binding.features());
+        assertTrue(binding.missing().isEmpty());
+        assertEquals(4, busCount());
+        assertEquals(1, feedCount());
+        call(api, "fireTamed", P, NPC, "Tamed_Cow", "livestock");
+        assertEquals(1, seen(CompanionChanged.class).size());
+    }
+
+    @Test
+    void theCountAsksTheDurableIndexFirst() throws Exception {
+        install();
+        call(api, "setOwned", P, 3L);
+        assertTrue(bind());
+        call(api, "fireTamed", P, NPC, "Tamed_Cow", "livestock");
+        assertEquals("3", fact(P, "companions"), "the fake answers the durable count only, as Tamework 5.5.1 does");
     }
 
     @Test

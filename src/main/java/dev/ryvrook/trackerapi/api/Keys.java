@@ -136,7 +136,7 @@ public final class Keys {
      * plugins read them like the {@code coinage:} and {@code dominion:} counters.
      */
     public static final List<String> MOD_PREFIXES = List.of("rpg", "dungeons", "parries", "relics", "zephyr", "enchant",
-            "vein", "lucky", "mmo", "endless", "endgame", "tamework");
+            "vein", "lucky", "mmo", "endgame", "tamework");
 
     /** True for a key under one of {@link #MOD_PREFIXES}. */
     public static boolean isMod(String key) {

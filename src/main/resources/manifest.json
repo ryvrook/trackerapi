@@ -2,7 +2,7 @@
   "Group": "Ryvrook",
   "Name": "TrackerAPI",
   "Version": "@version@",
-  "Description": "Hooks the engine once and hands block, item, combat, movement and world events to other plugins as 62 kinds of typed event, per player counters and an hourly journal on disk.",
+  "Description": "Hooks the engine once and hands block, item, combat, movement and world events to other plugins as 76 kinds of typed event, per player counters and an hourly journal on disk.",
   "Main": "dev.ryvrook.trackerapi.TrackerApiPlugin",
   "Authors": [
     {

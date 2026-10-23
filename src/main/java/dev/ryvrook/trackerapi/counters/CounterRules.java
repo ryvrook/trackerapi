@@ -27,6 +27,22 @@ public final class CounterRules {
         return MIN.contains(key) || (Keys.isMod(key) && MOD_MIN.contains(modStat(key)));
     }
 
+    /**
+     * The plural total of a mod discovery key, {@code endgame:bestiaries} for {@code endgame:bestiary:Kweebec}, or
+     * null for a key that is not three levels deep under a mod prefix.
+     */
+    public static String modDiscoveryTotal(String key) {
+        if (!Keys.isMod(key)) {
+            return null;
+        }
+        int a = key.indexOf(':');
+        int b = key.indexOf(':', a + 1);
+        if (b < 0 || b == key.length() - 1) {
+            return null;
+        }
+        return Keys.of(key.substring(0, a), dev.ryvrook.trackerapi.api.ModKeys.plural(key.substring(a + 1, b)));
+    }
+
     /** The stat part of a mod key, {@code level} for {@code rpg:level} and for {@code mmo:level:Mining}. */
     static String modStat(String key) {
         int a = key.indexOf(':');

@@ -33,7 +33,7 @@ import java.util.logging.Level;
  */
 public abstract class AbstractBinding implements ModBinding {
     /** Failures of one feature before it is switched off for this bind. */
-    static final int FAILURES_TO_OFF = 20;
+    public static final int FAILURES_TO_OFF = 20;
 
     private final String id;
     private final String pluginId;
@@ -119,6 +119,13 @@ public abstract class AbstractBinding implements ModBinding {
         synchronized (undo) {
             undo.clear();
         }
+        // A world thread callback that passed has() just before the last unbind may have written per player state
+        // after that unbind's reset, so the state is dropped again here, before anything of this bind can see it.
+        try {
+            reset();
+        } catch (RuntimeException e) {
+            log.at(Level.FINE).withCause(e).log("TrackerAPI %s binding failed to reset", name);
+        }
         bound = true;
         try {
             resolve(plugin);
@@ -167,7 +174,7 @@ public abstract class AbstractBinding implements ModBinding {
         runUndo();
         if (services != null) {
             try {
-                beforeFactsCleared();
+                reset();
             } catch (RuntimeException e) {
                 log.at(Level.FINE).withCause(e).log("TrackerAPI %s binding failed to clean up", name);
             }
@@ -181,10 +188,17 @@ public abstract class AbstractBinding implements ModBinding {
                 publish(new ModBound(services.header(null, null), id, pluginId, version, false, List.of()));
             }
         }
+        // Nothing of the mod's loader stays referenced: the handle cache is keyed by the mod's classes and the
+        // loader itself would otherwise pin the old loader across a reload.
+        uuidGetters.clear();
+        loader = null;
     }
 
-    /** A hook for a subclass to drop its own per player state at unbind. */
-    protected void beforeFactsCleared() {
+    /**
+     * A hook for a subclass to drop its own per player state. Called at unbind after the undo steps, and again at
+     * the start of the next bind before the bound flag is set.
+     */
+    protected void reset() {
     }
 
     private void runUndo() {
@@ -275,10 +289,15 @@ public abstract class AbstractBinding implements ModBinding {
 
     /** Switches a feature off for this bind. */
     protected final void off(String feature) {
+        off(feature, "until the mod or TrackerAPI is reloaded");
+    }
+
+    /** Switches a feature off and says until when, for a subclass that can bring it back itself. */
+    protected final void off(String feature, String untilWhen) {
         if (features.remove(feature)) {
             missing.add(feature);
             if (log != null) {
-                log.at(Level.WARNING).log("TrackerAPI %s binding switched %s off until the mod or TrackerAPI is reloaded", name, feature);
+                log.at(Level.WARNING).log("TrackerAPI %s binding switched %s off %s", name, feature, untilWhen);
             }
         }
     }
@@ -336,7 +355,9 @@ public abstract class AbstractBinding implements ModBinding {
         if (registry == null) {
             throw new IllegalStateException("TrackerAPI's event registry is not available");
         }
-        com.hypixel.hytale.registry.Registration reg = registry.register((Class) eventClass, (java.util.function.Consumer) consumer);
+        // registerGlobal, as TrackerAPI's own player hooks do for IEvent<Void> events, which is the form a mod's
+        // dispatchFor(Class).dispatch(event) reaches.
+        com.hypixel.hytale.registry.Registration reg = registry.registerGlobal((Class) eventClass, (java.util.function.Consumer) consumer);
         onUnbind(reg::unregister);
     }
 
@@ -371,6 +392,11 @@ public abstract class AbstractBinding implements ModBinding {
     }
 
     private final Map<Class<?>, MethodHandle> uuidGetters = new ConcurrentHashMap<>();
+
+    /** How many classes the uuid getter cache holds, for tests. */
+    final int uuidGetterCacheSize() {
+        return uuidGetters.size();
+    }
 
     private MethodHandle uuidGetter(Class<?> type) {
         return uuidGetters.computeIfAbsent(type, t -> {

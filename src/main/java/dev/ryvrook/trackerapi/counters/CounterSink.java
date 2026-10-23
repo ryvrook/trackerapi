@@ -75,8 +75,8 @@ import java.util.concurrent.ConcurrentHashMap;
  * recently and placing a block on a spot used recently count nothing, neither the total nor the per id key.
  * A ripe crop broken by hand counts as a harvest even on a spot the player planted, since it had to grow.
  * Chat counts at most one message per player every five seconds, and a cancelled message never counts.
- * Kill streaks and the chat timer outlive a relog and are forgotten an hour after the player left, through
- * {@link Forgetting}.
+ * Kill streaks, the chat timer and the fractions of mod XP under one point outlive a relog and are forgotten an
+ * hour after the player left, through {@link Forgetting}.
  */
 public final class CounterSink implements Publisher.Sink {
     private static final Set<EventKind> WANTED = EnumSet.of(EventKind.BLOCK_BROKEN, EventKind.BLOCK_PLACED,
@@ -100,6 +100,8 @@ public final class CounterSink implements Publisher.Sink {
 
     private final KillStreaks streaks = new KillStreaks();
     private final Map<UUID, Long> lastChatAt = new ConcurrentHashMap<>();
+    /** The fraction of mod XP under one point per player and key, carried until it adds up to a whole point. */
+    private final Map<UUID, Map<String, Double>> xpRemainders = new ConcurrentHashMap<>();
     private volatile boolean countCreative = true;
 
     public CounterSink(CounterStore store) {
@@ -114,10 +116,30 @@ public final class CounterSink implements Publisher.Sink {
         return streaks;
     }
 
-    /** Forgets the streak and the chat timer of a player once they stayed away for the hour of grace. */
+    /** Forgets the streak, the chat timer and the XP fractions of a player once they stayed away for the hour of grace. */
     public void registerWith(Forgetting forgetting) {
         forgetting.onPlayer(streaks::forget);
         forgetting.onPlayer(lastChatAt::remove);
+        forgetting.onPlayer(xpRemainders::remove);
+    }
+
+    /**
+     * The whole points of an XP amount once the fraction carried for this player and key is added. An award under a
+     * point counts nothing now and a point later, so four awards of 0.25 count as one.
+     */
+    private long wholeXp(UUID player, String key, double amount) {
+        Map<String, Double> carried = xpRemainders.computeIfAbsent(player, u -> new ConcurrentHashMap<>(4));
+        synchronized (carried) {
+            double total = amount + carried.getOrDefault(key, 0.0);
+            long whole = (long) Math.floor(total + 1e-9);
+            double rest = total - whole;
+            if (rest > 1e-9) {
+                carried.put(key, rest);
+            } else {
+                carried.remove(key);
+            }
+            return whole;
+        }
     }
 
     @Override
@@ -288,16 +310,17 @@ public final class CounterSink implements Publisher.Sink {
                 }
             }
             case ModXpGained e -> {
-                if (p == null || e.mod() == null) {
-                    return;
-                }
-                long amount = Math.round(e.amount());
-                if (amount <= 0) {
+                if (p == null || e.mod() == null || !(e.amount() > 0)) {
                     return;
                 }
                 boolean main = e.track() == null || e.track().isEmpty() || e.track().equals(ModKeys.PLAYER_TRACK);
                 String id = main ? e.source() : e.track();
-                store.addId(p, Keys.of(e.mod(), ModKeys.XP), id, Keys.of(e.mod(), ModKeys.XP), amount, w);
+                String key = Keys.of(e.mod(), ModKeys.XP);
+                long amount = wholeXp(p, id == null ? key : Keys.of(key, id), e.amount());
+                if (amount <= 0) {
+                    return;
+                }
+                store.addId(p, key, id, key, amount, w);
             }
             case ModChoiceChanged e -> {
                 if (p == null || e.mod() == null || e.slot() == null || e.id() == null) {
@@ -371,7 +394,7 @@ public final class CounterSink implements Publisher.Sink {
                 store.addId(p, Keys.of(e.mod(), ModKeys.PROCS), e.enchantId(), Keys.of(e.mod(), ModKeys.PROCS), 1, w);
             }
             case VeinMined e -> {
-                if (p == null || e.mod() == null || e.blocks() <= 0) {
+                if (p == null || e.mod() == null || e.blocks() <= 0 || (e.creative() && !countCreative)) {
                     return;
                 }
                 store.add(p, Keys.of(e.mod(), ModKeys.VEINS), 1, w);
@@ -379,7 +402,7 @@ public final class CounterSink implements Publisher.Sink {
                 store.raise(p, Keys.of(e.mod(), ModKeys.LARGEST), e.blocks());
             }
             case LuckyDrop e -> {
-                if (p == null || e.mod() == null) {
+                if (p == null || e.mod() == null || (e.creative() && !countCreative)) {
                     return;
                 }
                 store.addId(p, Keys.of(e.mod(), ModKeys.DROPS), e.blockId(), Keys.of(e.mod(), ModKeys.DROPS), 1, w);

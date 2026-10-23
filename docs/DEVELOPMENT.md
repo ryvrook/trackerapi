@@ -24,6 +24,7 @@ The server artifact comes from `maven.hytale.com` as `compileOnly`, with the cha
 | `hooks` | `HookSet`, `Registrar` (guarded registration with straggler cleanup), `Hooks` (the install order), `PlayerEventSystem` and the five sets `PlayerHooks`, `BlockHooks`, `ItemHooks` with `InventoryHook`, `CombatHooks` (subpackage `combat`), `WorldHooks` (subpackage `world`), plus `MovementEdgeSystem` and `FarmBlocks` (the seed and crop reads). |
 | `journal` | `FileJournal`, `EventJson`, `JournalService`. |
 | `imports` | `Importer`, `FeatsImport`, `ChronicleImport`, `ImportState`. |
+| `mods` | The bindings to other mods. `ModBinding`, `AbstractBinding`, `Handles`, `ModBindings` (the hook set and the poll), one subpackage per mod. See section 12 of the contract and `docs/briefs/mod-bindings.md`. |
 | `command` | `TrackerCommand` and `RecentRing`. |
 | `util` | `Guard`, `Perf`, `Threads`, `JsonFiles`. |
 
@@ -117,7 +118,7 @@ The dispatch benchmark opens the subscriptions the suite opens, 78 of them since
 
 1. `./gradlew build`, make a scratch folder with `permissions.json` holding `{"users":{},"groups":{}}` and a `mods` folder with the jar.
 2. Run `HytaleServer.jar` from the game install with `--assets <Assets.zip> --auth-mode offline --disable-sentry --bind 127.0.0.1:<port>`, stdin from a named pipe. Do not pass `--bare` (the server dies on 0.7.1) and do not pass `--mods` for the same folder (the plugin loads twice).
-3. Expect `TrackerAPI <version> set up, 53 hooks registered, 0 unsupported, 62 kinds tracked, journal on` and `TrackerAPI <version> started`.
+3. Expect `TrackerAPI <version> set up, 53 hooks registered, 0 unsupported, 76 kinds tracked, journal on` and `TrackerAPI <version> started`. With the third party jars in `mods` too, expect one `TrackerAPI bound <mod> <version>, N features` line per mod within ten seconds of the boot and `trackerapi mods` listing each as bound.
 4. Pipe `trackerapi status`, `trackerapi perf`, `trackerapi recent world_added`. Expect a journal line for `world_added`, `moon_phase_changed` and `world_event_started` under `journal/default/` and `server_lifecycle` under `journal/_server/`.
 5. Pipe `plugin reload Ryvrook:TrackerAPI`, expect the same two lines again and `jcmd <pid> Thread.print` to show one of each TrackerAPI thread. Pipe `stop`, expect no exception from TrackerAPI.
 

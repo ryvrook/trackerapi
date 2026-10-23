@@ -262,6 +262,153 @@ class ModBindingsTest {
     }
 
     @Test
+    void stopDuringAPollUndoesTheBindThatRacedIt() throws Throwable {
+        ClassLoader loader = FakeMods.loader();
+        Object plugin = FakeMods.plugin(loader);
+        ModBindings[] holder = new ModBindings[1];
+        ModBindings.Plugins stopping = new ModBindings.Plugins() {
+            @Override
+            public Object enabled(String pluginId) {
+                // TrackerAPI stops while the poll is between the lookup and the bind
+                holder[0].stop();
+                return plugin;
+            }
+
+            @Override
+            public String version(Object p) {
+                return "1.2.3";
+            }
+        };
+        mods.stop();
+        mods = new ModBindings(List.of(binding), stopping);
+        holder[0] = mods;
+        mods.attach(services);
+        mods.poll();
+        assertFalse(binding.isBound(), "the bind that raced the stop was undone");
+        assertEquals(0, listeners(fakeApi(loader)), "nothing of TrackerAPI is left in the mod");
+        assertEquals(0, mods.infos().stream().filter(ModInfo::bound).count());
+        // a start arms the poll again
+        mods.start();
+        mods.stop();
+    }
+
+    @Test
+    void stopDuringAPollEndsThePassBeforeTheNextBinding() throws Throwable {
+        ClassLoader loader = FakeMods.loader();
+        Object plugin = FakeMods.plugin(loader);
+        DemoBinding second = new DemoBinding();
+        ModBindings[] holder = new ModBindings[1];
+        int[] looked = {0};
+        ModBindings.Plugins stopping = new ModBindings.Plugins() {
+            @Override
+            public Object enabled(String pluginId) {
+                looked[0]++;
+                if (looked[0] == 1) {
+                    holder[0].stop();
+                }
+                return plugin;
+            }
+
+            @Override
+            public String version(Object p) {
+                return "1.2.3";
+            }
+        };
+        mods.stop();
+        mods = new ModBindings(List.of(binding, second), stopping);
+        holder[0] = mods;
+        mods.attach(services);
+        mods.poll();
+        assertEquals(1, looked[0], "the second binding was not looked up after the stop");
+        assertFalse(binding.isBound());
+        assertFalse(second.isBound());
+    }
+
+    @Test
+    void resetRunsAtUnbindAndAgainBeforeTheNextBind() throws Throwable {
+        List<String> calls = new ArrayList<>();
+        AbstractBinding counting = new AbstractBinding("demo", "Fakes:Demo", "Demo Mod") {
+            @Override
+            public java.util.Set<EventKind> kinds() {
+                return java.util.Set.of();
+            }
+
+            @Override
+            public List<dev.ryvrook.trackerapi.api.StatSpec> stats() {
+                return List.of();
+            }
+
+            @Override
+            protected void resolve(Object plugin) {
+                calls.add("resolve");
+                feature("anything", () -> Handles.type(loader, DemoBinding.API));
+            }
+
+            @Override
+            protected void reset() {
+                calls.add(isBound() ? "reset while bound" : "reset");
+            }
+        };
+        Object plugin = FakeMods.plugin(FakeMods.loader());
+        assertTrue(counting.bind(plugin, "1", services));
+        assertEquals(List.of("reset", "resolve"), calls, "the state is dropped before the bound flag is set");
+        counting.unbind("done");
+        assertEquals(List.of("reset", "resolve", "reset"), calls);
+        assertTrue(counting.bind(plugin, "1", services));
+        assertEquals(List.of("reset", "resolve", "reset", "reset", "resolve"), calls);
+        counting.unbind("done");
+    }
+
+    @Test
+    void unbindDropsTheModLoaderAndTheHandleCache() throws Throwable {
+        ClassLoader loader = FakeMods.loader();
+        enabled.put("Fakes:Demo", FakeMods.plugin(loader));
+        mods.poll();
+        assertSame(loader, binding.loader);
+        // a uuid read of a mod object fills the class keyed cache
+        Object event = Class.forName(DemoBinding.EVENT, true, loader).getConstructors()[0].newInstance(P, 1, 2);
+        assertEquals(P, binding.uuidOf(event));
+        assertEquals(1, binding.uuidGetterCacheSize());
+        enabled.clear();
+        mods.poll();
+        assertFalse(binding.isBound());
+        assertNull(binding.loader, "nothing pins the mod's loader after unbind");
+        assertEquals(0, binding.uuidGetterCacheSize());
+    }
+
+    @Test
+    void discoveryFamiliesAreDeclaredAsCountsPerIdInEveryBinding() {
+        int families = 0;
+        for (ModBinding b : ModBindings.all()) {
+            Map<String, dev.ryvrook.trackerapi.api.StatSpec> totals = new HashMap<>();
+            for (var spec : b.stats()) {
+                if (!spec.perId()) {
+                    totals.put(spec.key(), spec);
+                }
+            }
+            for (var spec : b.stats()) {
+                if (!spec.perId()) {
+                    continue;
+                }
+                String stat = spec.key().substring(spec.key().indexOf(':') + 1);
+                var total = totals.get(Keys.of(b.id(), ModKeys.plural(stat)));
+                if (total != null && total.aggregate() == dev.ryvrook.trackerapi.api.StatSpec.Aggregate.COUNT) {
+                    families++;
+                    assertEquals(dev.ryvrook.trackerapi.api.StatSpec.Aggregate.COUNT, spec.aggregate(),
+                            spec.key() + " is a discovery family, its per id spec must say COUNT like its total");
+                    assertFalse(spec.board(), spec.key());
+                }
+            }
+        }
+        assertEquals(9, families, "class (rpg, mmo), quest, bounty, achievement (mmo, endgame), bestiary, rune, wave");
+        var discovery = dev.ryvrook.trackerapi.api.StatSpec.discovery("rpg:class", "Class", "Class");
+        assertEquals(dev.ryvrook.trackerapi.api.StatSpec.Aggregate.COUNT, discovery.aggregate());
+        assertTrue(discovery.perId());
+        assertFalse(discovery.board());
+        assertFalse(Keys.MOD_PREFIXES.contains("endless"), "no binding exists for it, so no config key either");
+    }
+
+    @Test
     void failingCallbacksSwitchTheFeatureOff() throws Throwable {
         ClassLoader loader = FakeMods.loader();
         enabled.put("Fakes:Demo", FakeMods.plugin(loader));

@@ -73,9 +73,13 @@ class ModCountersTest {
         sink.accept(new ModXpGained(h(), "rpg", "player", 12.6, "KILL"));
         sink.accept(new ModXpGained(h(), "rpg", "player", 0.2, "KILL"));
         sink.accept(new ModXpGained(h(), "mmo", "Mining", 5, null));
-        assertEquals(13, get("rpg:xp"));
-        assertEquals(13, get("rpg:xp:KILL"));
+        assertEquals(12, get("rpg:xp"), "12.8 so far, the fraction is carried");
+        assertEquals(12, get("rpg:xp:KILL"));
         assertEquals(5, get("mmo:xp:Mining"));
+        assertEquals(12, store.server("rpg:xp"));
+        sink.accept(new ModXpGained(h(), "rpg", "player", 0.2, "KILL"));
+        assertEquals(13, get("rpg:xp"), "13.0, the carried fraction added up");
+        assertEquals(13, get("rpg:xp:KILL"));
         assertEquals(13, store.server("rpg:xp"));
 
         sink.accept(new ModChoiceChanged(h(), "rpg", "class", "warrior", "Warrior", 1));
@@ -104,6 +108,62 @@ class ModCountersTest {
         assertEquals(1, get("mmo:quest:q1"));
         assertEquals(1, get("mmo:quests"));
         assertEquals(1, get("mmo:achievements"));
+    }
+
+    @Test
+    void fractionalXpIsCarriedUntilItMakesAWholePoint() {
+        for (int i = 0; i < 3; i++) {
+            sink.accept(new ModXpGained(h(), "rpg", "player", 0.25, "MINE"));
+        }
+        assertEquals(0, get("rpg:xp"), "three quarters are not a point yet");
+        assertEquals(0, get("rpg:xp:MINE"));
+        sink.accept(new ModXpGained(h(), "rpg", "player", 0.25, "MINE"));
+        assertEquals(1, get("rpg:xp"));
+        assertEquals(1, get("rpg:xp:MINE"));
+        // the carry is per source, a quarter under KILL does not borrow from MINE
+        sink.accept(new ModXpGained(h(), "rpg", "player", 0.75, "MINE"));
+        sink.accept(new ModXpGained(h(), "rpg", "player", 0.5, "KILL"));
+        assertEquals(1, get("rpg:xp"));
+        sink.accept(new ModXpGained(h(), "rpg", "player", 0.5, "KILL"));
+        assertEquals(2, get("rpg:xp"));
+        assertEquals(1, get("rpg:xp:KILL"));
+        sink.accept(new ModXpGained(h(), "rpg", "player", 0.25, "MINE"));
+        assertEquals(3, get("rpg:xp"));
+        assertEquals(2, get("rpg:xp:MINE"));
+        // a skill track carries on its own key too, and nothing negative or zero counts
+        sink.accept(new ModXpGained(h(), "mmo", "Mining", 0.5, null));
+        sink.accept(new ModXpGained(h(), "mmo", "Mining", 0.5, null));
+        sink.accept(new ModXpGained(h(), "mmo", "Mining", -3, null));
+        sink.accept(new ModXpGained(h(), "mmo", "Mining", 0, null));
+        assertEquals(1, get("mmo:xp:Mining"));
+        assertEquals(1, get("mmo:xp"));
+    }
+
+    @Test
+    void creativeVeinsAndDropsFollowTheCreativeRule() {
+        sink.setCountCreative(false);
+        sink.accept(new VeinMined(h(), "vein", "Ore_Iron", 5, true));
+        sink.accept(new LuckyDrop(h(), "lucky", "Ore_Gold", "Ore_Gold", 3, true));
+        assertEquals(0, get("vein:veins"));
+        assertEquals(0, get("vein:blocks"));
+        assertEquals(0, get("vein:largest"));
+        assertEquals(0, get("lucky:drops"));
+        assertEquals(0, get("lucky:streak_best"));
+        sink.accept(new VeinMined(h(), "vein", "Ore_Iron", 4, false));
+        sink.accept(new LuckyDrop(h(), "lucky", "Ore_Gold", "Ore_Gold", 2, false));
+        assertEquals(1, get("vein:veins"));
+        assertEquals(4, get("vein:blocks"));
+        assertEquals(1, get("lucky:drops"));
+        sink.setCountCreative(true);
+        sink.accept(new VeinMined(h(), "vein", "Ore_Iron", 5, true));
+        sink.accept(new LuckyDrop(h(), "lucky", "Ore_Gold", "Ore_Gold", 3, true));
+        assertEquals(2, get("vein:veins"));
+        assertEquals(9, get("vein:blocks"));
+        assertEquals(2, get("lucky:drops"));
+        assertEquals(3, get("lucky:streak_best"));
+        // the old arity means not creative
+        assertFalse(new VeinMined(h(), "vein", "Ore_Iron", 1).creative());
+        assertFalse(new LuckyDrop(h(), "lucky", "Ore_Gold", "Ore_Gold", 1).creative());
     }
 
     @Test
@@ -168,6 +228,31 @@ class ModCountersTest {
         assertEquals(4, get("tamework:companion_level_best"));
         assertEquals(1, get("tamework:bred"));
         assertEquals(1, get("tamework:companions_lost"));
+    }
+
+    @Test
+    void modDiscoveryBeforeTheDiskReadMergesAsAFirstNotASum() {
+        PlayerCounters disk = new PlayerCounters(P, "Alder", 50L);
+        disk.set("endgame:bestiary:Kweebec", 1L);
+        disk.add("endgame:bestiaries", 1L);
+        disk.add("dungeons:cleared:Crypt", 2L);
+
+        PlayerCounters live = new PlayerCounters(P, "", 100L);
+        live.setMerged(false);
+        live.set("endgame:bestiary:Kweebec", 1L);     // seen again after the join, before the file landed
+        live.add("endgame:bestiaries", 1L);
+        live.set("endgame:bestiary:Trork", 1L);        // new
+        live.add("endgame:bestiaries", 1L);
+        live.add("dungeons:cleared:Crypt", 1L);        // a per id sum stays a sum
+
+        live.mergeFromDisk(disk);
+        assertEquals(1, live.get("endgame:bestiary:Kweebec"));
+        assertEquals(1, live.get("endgame:bestiary:Trork"));
+        assertEquals(2, live.get("endgame:bestiaries"));
+        assertEquals(3, live.get("dungeons:cleared:Crypt"));
+        assertEquals("endgame:bestiaries", CounterRules.modDiscoveryTotal("endgame:bestiary:Kweebec"));
+        assertEquals(null, CounterRules.modDiscoveryTotal("endgame:bestiaries"));
+        assertEquals(null, CounterRules.modDiscoveryTotal("zone:Forest"));
     }
 
     @Test

@@ -151,7 +151,7 @@ public final class DungeonsBinding extends AbstractBinding {
     }
 
     @Override
-    protected void beforeFactsCleared() {
+    protected void reset() {
         runs.clear();
     }
 

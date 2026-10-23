@@ -67,6 +67,8 @@ public final class ModBindings implements HookSet {
     private Services services;
     private PluginBase owner;
     private volatile ScheduledFuture<?> poll;
+    /** Set first in {@link #stop}, read by a poll already on the timer before each bind. */
+    private volatile boolean stopped;
     private static volatile EventRegistry events;
 
     public ModBindings(List<ModBinding> bindings, Plugins plugins) {
@@ -83,6 +85,17 @@ public final class ModBindings implements HookSet {
     public static List<ModBinding> all() {
         List<ModBinding> list = new ArrayList<>();
         // ---- bindings, begin ----
+        list.add(new dev.ryvrook.trackerapi.mods.rpg.RpgBinding());
+        list.add(new dev.ryvrook.trackerapi.mods.dungeons.DungeonsBinding());
+        list.add(new dev.ryvrook.trackerapi.mods.parries.ParriesBinding());
+        list.add(new dev.ryvrook.trackerapi.mods.relics.RelicsBinding());
+        list.add(new dev.ryvrook.trackerapi.mods.zephyr.ZephyrBinding());
+        list.add(new dev.ryvrook.trackerapi.mods.enchant.EnchantBinding());
+        list.add(new dev.ryvrook.trackerapi.mods.vein.VeinBinding());
+        list.add(new dev.ryvrook.trackerapi.mods.lucky.LuckyBinding());
+        list.add(new dev.ryvrook.trackerapi.mods.mmo.MmoBinding());
+        list.add(new dev.ryvrook.trackerapi.mods.endgame.EndgameBinding());
+        list.add(new dev.ryvrook.trackerapi.mods.tamework.TameworkBinding());
         // ---- bindings, end ----
         return list;
     }
@@ -119,12 +132,14 @@ public final class ModBindings implements HookSet {
         if (services == null || bindings.isEmpty()) {
             return;
         }
+        stopped = false;
         int seconds = Math.max(2, services.config().modsPollSeconds);
         poll = services.timer.scheduleAtFixedRate(this::pollSafely, FIRST_POLL_SECONDS, seconds, TimeUnit.SECONDS);
     }
 
     @Override
     public void stop() {
+        stopped = true;
         ScheduledFuture<?> p = poll;
         if (p != null) {
             p.cancel(false);
@@ -152,9 +167,15 @@ public final class ModBindings implements HookSet {
         }
     }
 
-    /** One pass over the bindings. Package private for tests, which call it in place of the timer. */
+    /**
+     * One pass over the bindings. Package private for tests, which call it in place of the timer. A stop that lands
+     * while the pass runs ends it before the next bind, and a bind the stop overlapped is undone at once.
+     */
     void poll() {
         for (ModBinding b : bindings) {
+            if (stopped) {
+                return;
+            }
             String id = b.id();
             if (!services.config().modEnabled(id)) {
                 if (b.isBound()) {
@@ -194,6 +215,10 @@ public final class ModBindings implements HookSet {
             } catch (RuntimeException | LinkageError e) {
                 services.logger.at(Level.WARNING).withCause(e).log("TrackerAPI could not bind to %s", b.name());
                 ok = false;
+            }
+            if (ok && stopped) {
+                b.unbind("TrackerAPI stopped");
+                return;
             }
             if (ok) {
                 boundTo.put(id, p);

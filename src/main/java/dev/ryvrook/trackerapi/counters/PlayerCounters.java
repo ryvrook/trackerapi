@@ -45,6 +45,11 @@ public final class PlayerCounters {
     private volatile boolean merged = true;
     /** Keys that are not TrackerAPI bests but were raised before the merge, see {@link #raiseTo}. */
     private Set<String> raisedEarly;
+    /**
+     * Mod discovery keys ({@code <mod>:<category>:<id>}) set before the merge. A discovery is set to 1, never added,
+     * so the merge keeps the larger value and takes a repeat off the plural total, as it does for zones.
+     */
+    private Set<String> setEarly;
 
     public PlayerCounters(UUID uuid, String name, long now) {
         this.uuid = uuid;
@@ -137,6 +142,12 @@ public final class PlayerCounters {
     }
 
     public synchronized void set(String key, long value) {
+        if (!merged && Keys.isMod(key) && CounterRules.modDiscoveryTotal(key) != null) {
+            if (setEarly == null) {
+                setEarly = new HashSet<>(4);
+            }
+            setEarly.add(key);
+        }
         long[] slot = counters.get(key);
         if (slot == null) {
             counters.put(key, new long[]{value});
@@ -297,6 +308,14 @@ public final class PlayerCounters {
                         rediscovered.merge(CounterRules.discoveryTotal(prefix), 1, Integer::sum);
                     }
                     slot[0] = Math.max(slot[0], e.getValue()[0]);
+                } else if (setEarly != null && setEarly.contains(key)) {
+                    if (slot[0] > 0 && e.getValue()[0] > 0) {
+                        if (rediscovered == null) {
+                            rediscovered = new HashMap<>();
+                        }
+                        rediscovered.merge(CounterRules.modDiscoveryTotal(key), 1, Integer::sum);
+                    }
+                    slot[0] = Math.max(slot[0], e.getValue()[0]);
                 } else if (CounterRules.isMin(key)) {
                     slot[0] = Math.min(slot[0], e.getValue()[0]);
                 } else {
@@ -331,6 +350,7 @@ public final class PlayerCounters {
             imported = disk.imported;
         }
         raisedEarly = null;
+        setEarly = null;
         dirty = true;
         merged = true;
     }

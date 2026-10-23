@@ -12,24 +12,28 @@ import dev.ryvrook.trackerapi.util.Guard;
 import java.util.UUID;
 
 /**
- * The engine walk behind the RPG Leveling reads. Posts one task per world through {@link WorldTasks#post} and
- * visits each player whose reference lives in that world's store, on the world thread, as the sampler does. A
- * single player is found through the universe and visited on the world their reference names. Timer or dispatch
- * thread in, world threads out.
+ * The engine walk behind the RPG Leveling reads. The poll posts one task per world through a
+ * {@link WorldTasks.Gate}, so a world thread that fell behind holds at most one waiting read, and visits each
+ * player whose reference lives in that world's store, on the world thread, as the sampler does. A single player
+ * is found through the universe and visited on the world their reference names, posted without the gate since a
+ * join read must not be dropped behind a poll task. Timer or dispatch thread in, world threads out.
  */
 final class EngineRpgPlayers implements RpgPlayers {
+    private final WorldTasks.Gate gate = new WorldTasks.Gate(10_000);
+
     @Override
     public void forEachOnline(Visitor visitor) {
         Universe universe = Universe.get();
         if (universe == null) {
             return;
         }
+        gate.sweep();
         for (World world : universe.getWorlds().values()) {
             try {
                 if (world == null || world.getPlayerCount() <= 0) {
                     continue;
                 }
-                WorldTasks.post(world, () -> visitWorld(world, visitor));
+                gate.post(world, () -> visitWorld(world, visitor));
             } catch (RuntimeException | LinkageError e) {
                 Guard.failed(e);
             }

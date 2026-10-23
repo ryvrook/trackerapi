@@ -114,7 +114,7 @@ public final class LuckyBinding extends AbstractBinding {
     }
 
     @Override
-    protected void beforeFactsCleared() {
+    protected void reset() {
         seen.clear();
     }
 
@@ -158,7 +158,7 @@ public final class LuckyBinding extends AbstractBinding {
         }
         String ore = Handles.stringOf(block.get(entry));
         int streak = streakOf(chance.getDouble(entry));
-        publish(new LuckyDrop(header(b.world(), player), ID, ore, ore, streak));
+        publish(new LuckyDrop(header(b.world(), player), ID, ore, ore, streak, b.creative()));
     }
 
     /** The streak length in breaks from the live chance, the creating break included, at least 1. */

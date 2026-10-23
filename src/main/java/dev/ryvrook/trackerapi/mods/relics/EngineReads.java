@@ -17,7 +17,6 @@ import dev.ryvrook.trackerapi.facts.WorldTasks;
 import dev.ryvrook.trackerapi.util.Guard;
 
 import java.util.ArrayList;
-import java.util.List;
 import java.util.UUID;
 
 /**
@@ -28,6 +27,8 @@ import java.util.UUID;
  */
 final class EngineReads implements RelicsBinding.Engine {
     private final WorldTasks.Gate gate = new WorldTasks.Gate(5_000);
+    /** The chain list handed to the visitor, one per world thread, cleared and refilled per relic holder. */
+    private final ThreadLocal<ArrayList<RelicsBinding.Chain>> buffer = ThreadLocal.withInitial(() -> new ArrayList<>(8));
 
     @Override
     public String heldItem(UUID player) {
@@ -86,20 +87,23 @@ final class EngineReads implements RelicsBinding.Engine {
             Store<EntityStore> store = world.getEntityStore().getStore();
             ComponentType<EntityStore, InteractionManager> type = InteractionModule.get().getInteractionManagerComponent();
             String name = world.getName();
+            ArrayList<RelicsBinding.Chain> list = buffer.get();
             for (PlayerRef pr : world.getPlayerRefs()) {
                 try {
-                    scanPlayer(pr, store, type, name, visitor);
+                    scanPlayer(pr, store, type, name, visitor, list);
                 } catch (RuntimeException | LinkageError e) {
                     Guard.failed(e);
                 }
             }
+            list.clear();
         } catch (RuntimeException | LinkageError e) {
             Guard.failed(e);
         }
     }
 
+    /** The visitor reads {@code list} during the call only, it is reused for the next player. */
     private static void scanPlayer(PlayerRef pr, Store<EntityStore> store, ComponentType<EntityStore, InteractionManager> type,
-                                   String world, RelicsBinding.ChainVisitor visitor) {
+                                   String world, RelicsBinding.ChainVisitor visitor, ArrayList<RelicsBinding.Chain> list) {
         if (pr == null) {
             return;
         }
@@ -116,7 +120,7 @@ final class EngineReads implements RelicsBinding.Engine {
             return;
         }
         var chains = manager.getChains();
-        List<RelicsBinding.Chain> list = new ArrayList<>(chains == null ? 0 : chains.size());
+        list.clear();
         if (chains != null) {
             for (InteractionChain chain : chains.values()) {
                 if (chain == null) {

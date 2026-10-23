@@ -111,11 +111,10 @@ public final class RpgBinding extends AbstractBinding {
         return List.of(
                 StatSpec.max(ModKeys.key(ID, ModKeys.LEVEL), "Level"),
                 StatSpec.sum(ModKeys.key(ID, ModKeys.LEVEL_UPS), "Level ups"),
-                new StatSpec(ModKeys.key(ID, ModKeys.MAX_LEVEL_REACHED), "Max level reached", StatSpec.Aggregate.COUNT, true,
-                        "Track", false, null),
+                StatSpec.discovery(ModKeys.key(ID, ModKeys.MAX_LEVEL_REACHED), "Max level reached", "Track"),
                 StatSpec.sum(ModKeys.key(ID, ModKeys.XP), "XP").unit("xp"),
                 StatSpec.perId(ModKeys.key(ID, ModKeys.XP), "XP by source", "Source").unit("xp"),
-                new StatSpec(ModKeys.key(ID, SLOT_CLASS), "Class picked", StatSpec.Aggregate.COUNT, true, "Class", false, null),
+                StatSpec.discovery(ModKeys.key(ID, SLOT_CLASS), "Class picked", "Class"),
                 StatSpec.count(ModKeys.key(ID, ModKeys.plural(SLOT_CLASS)), "Classes picked"));
     }
 
@@ -244,7 +243,7 @@ public final class RpgBinding extends AbstractBinding {
     }
 
     @Override
-    protected void beforeFactsCleared() {
+    protected void reset() {
         lastClass.clear();
     }
 

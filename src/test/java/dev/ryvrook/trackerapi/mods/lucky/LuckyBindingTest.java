@@ -7,6 +7,7 @@ import dev.ryvrook.trackerapi.api.EventKind;
 import dev.ryvrook.trackerapi.api.Keys;
 import dev.ryvrook.trackerapi.api.ModKeys;
 import dev.ryvrook.trackerapi.api.TrackerEvent;
+import dev.ryvrook.trackerapi.api.event.BlockBroken;
 import dev.ryvrook.trackerapi.api.event.LuckyDrop;
 import dev.ryvrook.trackerapi.api.event.PlayerLeft;
 import dev.ryvrook.trackerapi.mods.FakeMods;
@@ -109,6 +110,25 @@ class LuckyBindingTest {
                 "the fake is isolated from the test classpath");
         assertEquals(3, binding.stats().size());
         assertTrue(services.publisher.subscriptions().stream().anyMatch(s -> s.owner().equals("mods/lucky")));
+    }
+
+    @Test
+    void creativeBreakGivesACreativeDrop() throws Throwable {
+        binding.bind(plugin(), "1.0.8", services);
+        long now = 5_000_000L;
+        Object entry = start(P, "Ore_Copper_Stone", now);
+        broke(P, "Ore_Copper_Stone");
+        bonus(entry, now + 100);
+        services.publisher.publish(new BlockBroken(TestSupport.header("default", P), 1, 2, 3, "Ore_Copper_Stone",
+                "Tool_Pickaxe_Iron", false, true));
+        assertEquals(1, seen.size());
+        assertTrue(drop(0).creative());
+        assertEquals(0, services.counters.get(P, Keys.of("lucky", ModKeys.DROPS)), "the test config does not count creative");
+        bonus(entry, now + 200);
+        broke(P, "Ore_Copper_Stone");
+        assertEquals(2, seen.size());
+        assertFalse(drop(1).creative());
+        assertEquals(1, services.counters.get(P, Keys.of("lucky", ModKeys.DROPS)));
     }
 
     @Test

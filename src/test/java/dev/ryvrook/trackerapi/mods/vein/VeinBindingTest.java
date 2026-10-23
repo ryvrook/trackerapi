@@ -199,6 +199,33 @@ class VeinBindingTest {
     }
 
     @Test
+    void creativeBreakOpensACreativeVein() throws Exception {
+        binding.bind(plugin(), "2.5.0", services);
+        flag.set(true);
+        try {
+            services.publisher.publish(new BlockBroken(TestSupport.header("default", P), 1, 2, 3, "Ore_Copper_Stone",
+                    "Tool_Pickaxe_Iron", false, true));
+            clock.addAndGet(5);
+            services.publisher.publish(new BlockBroken(TestSupport.header("default", P), 1, 3, 3, "Ore_Copper_Stone",
+                    "Tool_Pickaxe_Iron", false, true));
+        } finally {
+            flag.set(false);
+        }
+        clock.addAndGet(VeinBinding.GAP_MILLIS);
+        binding.tick();
+        assertEquals(1, seen.size());
+        assertTrue(vein(0).creative());
+        assertEquals(2, vein(0).blocks());
+        assertEquals(0, services.counters.get(P, Keys.of("vein", ModKeys.VEINS)), "the test config does not count creative");
+        flagged(P, "Ore_Copper_Stone");
+        clock.addAndGet(VeinBinding.GAP_MILLIS);
+        binding.tick();
+        assertEquals(2, seen.size());
+        assertFalse(vein(1).creative());
+        assertEquals(1, services.counters.get(P, Keys.of("vein", ModKeys.VEINS)));
+    }
+
+    @Test
     void renamedFlagLeavesTheFeatureMissing() throws Exception {
         VeinBinding broken = new VeinBinding(new VeinBinding.Names("fakes.vein.RenamedMiningManager"));
         assertFalse(broken.bind(plugin(), "2.5.0", services));

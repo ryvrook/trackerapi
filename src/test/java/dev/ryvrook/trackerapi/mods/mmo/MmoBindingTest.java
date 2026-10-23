@@ -14,6 +14,7 @@ import dev.ryvrook.trackerapi.api.event.ModLevelUp;
 import dev.ryvrook.trackerapi.api.event.ModMilestone;
 import dev.ryvrook.trackerapi.api.event.ModXpGained;
 import dev.ryvrook.trackerapi.api.event.PlayerJoined;
+import dev.ryvrook.trackerapi.api.event.PlayerLeft;
 import dev.ryvrook.trackerapi.mods.FakeMods;
 import dev.ryvrook.trackerapi.mods.Handles;
 import org.junit.jupiter.api.AfterEach;
@@ -262,6 +263,22 @@ class MmoBindingTest {
         assertEquals(1, of(ModChoiceChanged.class).size(), "the same class is not a new pick");
         assertEquals(before + 3, seen.size());
         assertEquals(5, binding.published(), "the bind event, the pick, two gains and a level up");
+    }
+
+    @Test
+    void leaveDropsThePlayerSoTheNextSessionSeedsTheClassAgain() throws Throwable {
+        bind();
+        assertEquals(1, of(ModChoiceChanged.class).size());
+        services.publisher.publish(new PlayerJoined(services.header("default", P), "Alder", false));
+        services.dispatcher.drainHere();
+        assertEquals(1, of(ModChoiceChanged.class).size(), "the same class in the same session is not a pick");
+        services.publisher.publish(new PlayerLeft(services.header("default", P), "Alder", 60_000L));
+        services.dispatcher.drainHere();
+        services.publisher.publish(new PlayerJoined(services.header("default", P), "Alder", false));
+        services.dispatcher.drainHere();
+        assertEquals(2, of(ModChoiceChanged.class).size(), "after a leave the class is read as a fresh pick");
+        assertEquals(1, counter("mmo:classes"), "the discovery counter does not double count it");
+        assertEquals(3, worlds.reads);
     }
 
     @Test

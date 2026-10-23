@@ -115,6 +115,12 @@ public final class EnchantBinding extends AbstractBinding {
         });
     }
 
+    @Override
+    protected void reset() {
+        // keyed by the mod's stack classes, which would pin the old loader across a reload
+        itemReaders.clear();
+    }
+
     private void listen(Class<?> event, Consumer<Object> consumer) {
         Runnable undo = bus.listen(event, consumer);
         onUnbind(undo);

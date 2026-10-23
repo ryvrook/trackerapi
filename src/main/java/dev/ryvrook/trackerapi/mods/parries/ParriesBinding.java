@@ -101,7 +101,7 @@ public final class ParriesBinding extends AbstractBinding {
     }
 
     @Override
-    protected void beforeFactsCleared() {
+    protected void reset() {
         streaks.clear();
     }
 

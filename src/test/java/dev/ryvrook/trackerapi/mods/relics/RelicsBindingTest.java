@@ -233,9 +233,17 @@ class RelicsBindingTest {
         assertEquals(1, count(P, "relics:abilities:airblades"));
         assertEquals(1, binding.remembered());
 
-        // the same chains again are not new
+        // the same chains again are not new, and cost no new set
+        java.util.Set<Integer> remembered = binding.remembered(P);
+        assertEquals(java.util.Set.of(1, 2), remembered);
         binding.scan();
         binding.scan();
+        assertEquals(1, of(ModAbilityUsed.class).size());
+        assertSame(remembered, binding.remembered(P), "the remembered set is compared in place");
+        // a chain that ended is a change, so the set is rebuilt
+        engine.chains.put(P, List.of(new RelicsBinding.Chain(1, "Root_Weapon_Void_Requiem_Signature_Airblades")));
+        binding.scan();
+        assertEquals(java.util.Set.of(1), binding.remembered(P));
         assertEquals(1, of(ModAbilityUsed.class).size());
 
         // a new chain beside the old one

@@ -1,5 +1,29 @@
 # Changelog
 
+## 1.2.0
+
+TrackerAPI reads the popular mods. Updating is a jar swap, the API grew and nothing changed for the plugins on it.
+
+- Eleven mod bindings: RPG Leveling, Major Dungeons, Perfect Parries, Wan's Wonder Weapons, Zephyr, Simple
+  Enchantments, Vein Mining, Lucky Mining, MMO Skill Tree, Endgame and QoL and Alec's Tamework. Each is found by
+  plugin id every five seconds, bound through the mod's own classes while it is enabled, and let go when it is
+  missing, reloaded or set to `never` under `mods` in `TrackerAPI.json`. A mod whose API changed in part keeps the
+  features that still match. The README lists what each one counts.
+- Fourteen new event kinds for what the mods do, 76 in all, each record with the binding id in its `mod` field:
+  `ModLevelUp`, `ModXpGained` (high volume), `ModChoiceChanged`, `ModAbilityUsed`, `ModAction`, `ModMilestone`,
+  `DungeonRun`, `ModBossDefeated`, `ItemEnchanted`, `EnchantmentTriggered` (high volume), `VeinMined`, `LuckyDrop`,
+  `CompanionChanged` and `ModBound`.
+- Counters under each binding's prefix, such as `rpg:level`, `dungeons:fastest:<dungeon>` or `parries:streak_best`,
+  with leaderboards for the totals and bests. Bests merge as bests, firsts as firsts, after a join as before.
+  Mod XP under a point is carried per player and source until it adds up to one, so small awards count. Veins
+  and lucky drops carry the `creative` flag of their break and follow `countCreative` like block breaks.
+- `TrackerApi.mods()` (API 2) lists every mod TrackerAPI knows with its bound state, version, the feature groups
+  that resolved or did not, and every counter it writes with a label, so a stats plugin shows them without a table
+  of its own. `ModBound` fires on every bind and unbind. The player snapshot carries `facts()` such as `rpg.level`
+  and `rpg.class`.
+- `/trackerapi mods` prints the state of every binding with its features and counters, and `/trackerapi status`
+  gained a Mods line. New settings `mods.pollSeconds` and `mods.<id>`.
+
 ## 1.1.2
 
 Moving items out of a chest and back in no longer counts as finding them. Updating is a jar swap.

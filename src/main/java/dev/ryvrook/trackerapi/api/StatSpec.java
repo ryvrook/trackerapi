@@ -40,6 +40,14 @@ public record StatSpec(String key, String label, Aggregate aggregate, boolean pe
         return new StatSpec(key, label, Aggregate.SUM, true, idLabel, false, null);
     }
 
+    /**
+     * A per id discovery family, {@code key:<id>} each set once, counted under its plural total. The aggregate is
+     * COUNT, as the total's, so a consumer reads both the same way. No board.
+     */
+    public static StatSpec discovery(String key, String label, String idLabel) {
+        return new StatSpec(key, label, Aggregate.COUNT, true, idLabel, false, null);
+    }
+
     public StatSpec unit(String u) {
         return new StatSpec(key, label, aggregate, perId, idLabel, board, u);
     }

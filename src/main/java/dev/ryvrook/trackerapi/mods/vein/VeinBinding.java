@@ -93,7 +93,7 @@ public final class VeinBinding extends AbstractBinding {
     }
 
     @Override
-    protected void beforeFactsCleared() {
+    protected void reset() {
         veins.clear();
     }
 
@@ -134,7 +134,7 @@ public final class VeinBinding extends AbstractBinding {
                 publishVein(player, open);
             }
         }
-        Vein vein = new Vein(b.blockId(), b.world());
+        Vein vein = new Vein(b.blockId(), b.world(), b.creative());
         vein.add(b.blockId(), now);
         veins.put(player, vein);
     }
@@ -189,7 +189,7 @@ public final class VeinBinding extends AbstractBinding {
             return;
         }
         if (wants(EventKind.VEIN_MINED)) {
-            publish(new VeinMined(header(vein.world, player), ID, vein.blockId, vein.count));
+            publish(new VeinMined(header(vein.world, player), ID, vein.blockId, vein.count, vein.creative));
         }
         if (vein.ore > 0) {
             services.counters.add(player, ModKeys.key(ID, ORE_BLOCKS), vein.ore, vein.world);
@@ -205,14 +205,17 @@ public final class VeinBinding extends AbstractBinding {
     private static final class Vein {
         final String blockId;
         final String world;
+        /** The flag of the break that opened the vein. */
+        final boolean creative;
         int count;
         int ore;
         long last;
         boolean closed;
 
-        Vein(String blockId, String world) {
+        Vein(String blockId, String world, boolean creative) {
             this.blockId = blockId;
             this.world = world;
+            this.creative = creative;
         }
 
         void add(String id, long now) {

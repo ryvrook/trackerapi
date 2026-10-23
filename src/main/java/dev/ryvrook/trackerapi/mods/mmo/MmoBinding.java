@@ -16,6 +16,7 @@ import dev.ryvrook.trackerapi.api.event.ModChoiceChanged;
 import dev.ryvrook.trackerapi.api.event.ModLevelUp;
 import dev.ryvrook.trackerapi.api.event.ModMilestone;
 import dev.ryvrook.trackerapi.api.event.ModXpGained;
+import dev.ryvrook.trackerapi.api.event.PlayerLeft;
 import dev.ryvrook.trackerapi.mods.AbstractBinding;
 import dev.ryvrook.trackerapi.mods.Handles;
 
@@ -101,13 +102,13 @@ public final class MmoBinding extends AbstractBinding {
                 StatSpec.sum(ModKeys.key(ID, ModKeys.ABILITIES), "Abilities cast"),
                 StatSpec.perId(ModKeys.key(ID, ModKeys.ABILITIES), "Casts by ability", "Ability"),
                 StatSpec.count(ModKeys.key(ID, ModKeys.plural(SLOT_CLASS)), "Classes picked"),
-                StatSpec.perId(ModKeys.key(ID, SLOT_CLASS), "Class", "Class"),
+                StatSpec.discovery(ModKeys.key(ID, SLOT_CLASS), "Class", "Class"),
                 StatSpec.count(ModKeys.key(ID, ModKeys.plural(CAT_QUEST)), "Quests completed"),
-                StatSpec.perId(ModKeys.key(ID, CAT_QUEST), "Quests by id", "Quest"),
+                StatSpec.discovery(ModKeys.key(ID, CAT_QUEST), "Quests by id", "Quest"),
                 StatSpec.count(ModKeys.key(ID, ModKeys.plural(CAT_BOUNTY)), "Bounties completed"),
-                StatSpec.perId(ModKeys.key(ID, CAT_BOUNTY), "Bounties by id", "Bounty"),
+                StatSpec.discovery(ModKeys.key(ID, CAT_BOUNTY), "Bounties by id", "Bounty"),
                 StatSpec.count(ModKeys.key(ID, ModKeys.plural(CAT_ACHIEVEMENT)), "Achievements unlocked"),
-                StatSpec.perId(ModKeys.key(ID, CAT_ACHIEVEMENT), "Achievements by id", "Achievement"));
+                StatSpec.discovery(ModKeys.key(ID, CAT_ACHIEVEMENT), "Achievements by id", "Achievement"));
     }
 
     // ---- resolve -----------------------------------------------------------------------------------------
@@ -184,9 +185,17 @@ public final class MmoBinding extends AbstractBinding {
                     Handles.virtual(classService, "getCurrentClass", classDefinition, skills),
                     Handles.virtual(classDefinition, "getId", String.class));
             onUnbind(() -> seed = null);
-            Subscription joins = services.publisher.subscribe("mods/" + ID, Set.of(EventKind.PLAYER_JOINED), Delivery.ASYNC,
-                    e -> seedPlayer(e.player()));
-            onUnbind(joins::close);
+            Subscription players = services.publisher.subscribe("mods/" + ID,
+                    Set.of(EventKind.PLAYER_JOINED, EventKind.PLAYER_LEFT), Delivery.ASYNC, e -> {
+                        if (e instanceof PlayerLeft left) {
+                            if (left.player() != null) {
+                                classes.remove(left.player());
+                            }
+                        } else {
+                            seedPlayer(e.player());
+                        }
+                    });
+            onUnbind(players::close);
         });
         if (has(F_SEED)) {
             names.worlds().readAll(this::seedRead);
@@ -194,7 +203,7 @@ public final class MmoBinding extends AbstractBinding {
     }
 
     @Override
-    protected void beforeFactsCleared() {
+    protected void reset() {
         classes.clear();
         completedUnclaimed.clear();
     }
@@ -261,18 +270,27 @@ public final class MmoBinding extends AbstractBinding {
     // ---- callbacks ---------------------------------------------------------------------------------------
 
     private void onXp(Object event, Xp xp) throws Throwable {
+        // The level fields decide whether the event is read at all: a level up is followed by a seed read of the
+        // player's levels whatever the consumers want, a plain gain is read only when someone wants the kind.
+        boolean wantXp = wants(EventKind.MOD_XP_GAINED);
+        int before = Handles.intOf(xp.before().invoke(event), 0);
+        int after = Handles.intOf(xp.after().invoke(event), 0);
+        boolean levelUp = after > before;
+        if (!wantXp && !levelUp) {
+            return;
+        }
         UUID uuid = uuidOf(xp.player().invoke(event));
         String skill = Handles.stringOf(xp.skill().invoke(event));
         if (uuid == null || skill == null || skill.isEmpty()) {
             return;
         }
-        long amount = Handles.longOf(xp.amount().invoke(event), 0L);
-        int before = Handles.intOf(xp.before().invoke(event), 0);
-        int after = Handles.intOf(xp.after().invoke(event), 0);
-        if (amount > 0 && wants(EventKind.MOD_XP_GAINED)) {
-            publish(new ModXpGained(header(uuid), ID, skill, amount, null));
+        if (wantXp) {
+            long amount = Handles.longOf(xp.amount().invoke(event), 0L);
+            if (amount > 0) {
+                publish(new ModXpGained(header(uuid), ID, skill, amount, null));
+            }
         }
-        if (after > before) {
+        if (levelUp) {
             if (wants(EventKind.MOD_LEVEL_UP)) {
                 publish(new ModLevelUp(header(uuid), ID, skill, before, after, 0));
             }

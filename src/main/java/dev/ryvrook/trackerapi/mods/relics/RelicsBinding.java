@@ -120,7 +120,7 @@ public final class RelicsBinding extends AbstractBinding {
     }
 
     @Override
-    protected void beforeFactsCleared() {
+    protected void reset() {
         seen.clear();
     }
 
@@ -153,7 +153,11 @@ public final class RelicsBinding extends AbstractBinding {
         engine.scanChains((player, world, held, chains) -> guard(F_ABILITIES, () -> visit(player, world, held, chains)));
     }
 
-    /** A relic holder's live chains, their world thread. A chain not seen last round is a new use of its root. */
+    /**
+     * A relic holder's live chains, their world thread. A chain not seen last round is a new use of its root. The
+     * chains are compared against last round's set in place, and a new set is built only when a chain id came or
+     * went, so a player holding a relic with the same chains costs no allocation per second.
+     */
     private void visit(UUID player, String world, String held, List<Chain> chains) {
         if (player == null || chains == null) {
             return;
@@ -164,17 +168,18 @@ public final class RelicsBinding extends AbstractBinding {
             return;
         }
         Set<Integer> before = seen.get(player);
-        Set<Integer> now = new HashSet<>(Math.max(4, chains.size() * 2));
-        for (Chain c : chains) {
+        int live = 0;
+        boolean changed = false;
+        for (int i = 0, n = chains.size(); i < n; i++) {
+            Chain c = chains.get(i);
             if (c == null) {
                 continue;
             }
-            if (now.size() < SEEN_LIMIT) {
-                now.add(c.id());
-            }
+            live++;
             if (before != null && before.contains(c.id())) {
                 continue;
             }
+            changed = true;
             String root = c.rootId();
             Relics.Signature sig = Relics.signatureOf(root);
             if (sig != null) {
@@ -185,15 +190,30 @@ public final class RelicsBinding extends AbstractBinding {
                 publish(new ModAction(header(world, player), ID, FORM_SWITCH, false, null, 0));
             }
         }
-        if (now.isEmpty()) {
-            seen.remove(player);
-        } else {
-            seen.put(player, now);
+        if (!changed && before != null && before.size() == Math.min(live, SEEN_LIMIT)) {
+            return; // the same chains as last round
         }
+        if (live == 0) {
+            seen.remove(player);
+            return;
+        }
+        Set<Integer> now = new HashSet<>(Math.max(4, Math.min(live, SEEN_LIMIT) * 2));
+        for (int i = 0, n = chains.size(); i < n && now.size() < SEEN_LIMIT; i++) {
+            Chain c = chains.get(i);
+            if (c != null) {
+                now.add(c.id());
+            }
+        }
+        seen.put(player, now);
     }
 
     /** How many players have remembered chains, for tests. */
     int remembered() {
         return seen.size();
+    }
+
+    /** The remembered chain ids of a player, the live set and not a copy, for tests. */
+    Set<Integer> remembered(UUID player) {
+        return seen.get(player);
     }
 }

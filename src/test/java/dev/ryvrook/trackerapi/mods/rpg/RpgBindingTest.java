@@ -174,15 +174,15 @@ class RpgBindingTest {
         assertEquals(ModKeys.PLAYER_TRACK, xp.get(0).track());
         assertEquals(25.5, xp.get(0).amount());
         assertEquals("ENTITY_KILL", xp.get(0).source());
-        assertEquals(26, get(P, "rpg:xp"));
-        assertEquals(26, get(P, "rpg:xp:ENTITY_KILL"));
+        assertEquals(25, get(P, "rpg:xp"), "the half point is carried until it adds up");
+        assertEquals(25, get(P, "rpg:xp:ENTITY_KILL"));
 
         // a cancelled event, a zero amount and a null player count nothing
         call("fireXp", P, 40.0, "COMMAND", true);
         call("fireXp", P, 0.0, "COMMAND", false);
         call("fireXp", null, 40.0, "COMMAND", false);
         assertEquals(1, of(ModXpGained.class).size());
-        assertEquals(26, get(P, "rpg:xp"));
+        assertEquals(25, get(P, "rpg:xp"));
 
         // a source another mod created, and no source at all
         call("fireXp", P, 4.0, "TAMEWORK", false);
@@ -191,7 +191,7 @@ class RpgBindingTest {
         assertEquals(3, more.size());
         assertEquals("TAMEWORK", more.get(1).source());
         assertNull(more.get(2).source());
-        assertEquals(32, get(P, "rpg:xp"));
+        assertEquals(31, get(P, "rpg:xp"), "31.5 awarded, the half point is still carried");
         assertEquals(4, get(P, "rpg:xp:TAMEWORK"));
         assertEquals(4, binding.published());
     }
