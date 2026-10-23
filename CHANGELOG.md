@@ -1,5 +1,14 @@
 # Changelog
 
+## 1.2.1
+
+Three small fixes to the mod bindings. Updating is a jar swap.
+
+- The parry streak best and the Endgame wave best are raised before the event goes out, so a plugin that reads
+  the counter on the event (Feats does) sees the new value at once instead of one event late.
+- The Endgame combo personal best follows the mod's combo tier events while playing. Before, it moved only at a
+  join and at the bind.
+
 ## 1.2.0
 
 TrackerAPI reads the popular mods. Updating is a jar swap, the API grew and nothing changed for the plugins on it.

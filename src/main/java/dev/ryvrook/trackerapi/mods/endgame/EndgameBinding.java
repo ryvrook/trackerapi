@@ -56,6 +56,7 @@ public final class EndgameBinding extends AbstractBinding {
     public static final String F_DUNGEONS = "dungeon entry events";
     public static final String F_TRIALS = "trial callbacks";
     public static final String F_SEEDS = "player data seeds";
+    public static final String F_COMBO = "combo events";
 
     static final String CAT_ACHIEVEMENT = "achievement";
     static final String CAT_BESTIARY = "bestiary";
@@ -67,7 +68,7 @@ public final class EndgameBinding extends AbstractBinding {
     /** The class names of the mod's API, under one package root in production and under the fakes in tests. */
     public record Names(String plugin, String bus, String bossKill, String achievementUnlock, String dungeonEnter,
                         String arenaApi, String arenaCallbacks, String component, String bestiaryState,
-                        String bestiaryEntry, String runeState) {
+                        String bestiaryEntry, String runeState, String comboTier) {
         public static Names inPackage(String root) {
             return new Names(root + ".plugin.EndgameQoL",
                     root + ".plugin.events.domain.GameEventBus",
@@ -79,7 +80,8 @@ public final class EndgameBinding extends AbstractBinding {
                     root + ".plugin.components.PlayerEndgameComponent",
                     root + ".plugin.config.BestiaryData$PlayerBestiaryState",
                     root + ".plugin.config.BestiaryData$NPCEntry",
-                    root + ".plugin.config.RuneCollectionState");
+                    root + ".plugin.config.RuneCollectionState",
+                    root + ".plugin.events.domain.GameEvent$ComboTierChangeEvent");
         }
 
         public static final Names PRODUCTION = inPackage("endgame");
@@ -207,6 +209,15 @@ public final class EndgameBinding extends AbstractBinding {
             MethodHandle id = Handles.virtual(event, "achievementId", String.class);
             MethodHandle name = Handles.virtual(event, "achievementName", String.class);
             subscribeBus(theSubscribe, theBus, event, F_ACHIEVEMENTS, e -> onAchievement(e, player, id, name));
+        });
+        feature(F_COMBO, () -> {
+            if (theBusFailure != null) {
+                throw theBusFailure;
+            }
+            Class<?> event = Handles.type(loader, names.comboTier());
+            MethodHandle player = Handles.virtual(event, "playerUuid", UUID.class);
+            MethodHandle count = Handles.virtual(event, "comboCount", int.class);
+            subscribeBus(theSubscribe, theBus, event, F_COMBO, e -> onComboTier(e, player, count));
         });
         feature(F_DUNGEONS, () -> {
             if (theBusFailure != null) {
@@ -363,6 +374,19 @@ public final class EndgameBinding extends AbstractBinding {
         }
     }
 
+    /**
+     * A combo tier reached, on the world thread of the kill. Only the personal best moves, the tier changes
+     * themselves are too frequent for a record and the seed reads the best again at a join.
+     */
+    private void onComboTier(Object event, MethodHandle player, MethodHandle count) throws Throwable {
+        UUID uuid = uuidOf(player.invoke(event));
+        int combo = Handles.intOf(count.invoke(event), 0);
+        if (uuid == null || combo <= 0) {
+            return;
+        }
+        services.counters.raise(uuid, Keys.of(ID, COMBO_BEST), combo);
+    }
+
     /** {@code onWaveClear(owner, arenaId, wave, totalWaves)}. */
     private void onWaveClear(Object[] args) {
         if (args == null || args.length < 3) {
@@ -374,10 +398,11 @@ public final class EndgameBinding extends AbstractBinding {
         if (owner == null || arena == null || wave <= 0) {
             return;
         }
+        // The best is raised before the record goes out, so a consumer reading the counter on the event sees it.
+        services.counters.raise(owner, Keys.of(ID, WAVE_BEST), wave);
         if (wants(EventKind.MOD_MILESTONE)) {
             publish(new ModMilestone(header(owner), ID, CAT_WAVE, arena + "/" + wave, arena + " wave " + wave));
         }
-        services.counters.raise(owner, Keys.of(ID, WAVE_BEST), wave);
     }
 
     /** {@code onArenaCompleted(owner, arenaId, waves)} or {@code onArenaFailed(owner, arenaId, wave, reason)}. */

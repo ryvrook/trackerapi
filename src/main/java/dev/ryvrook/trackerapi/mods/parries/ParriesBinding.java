@@ -125,9 +125,10 @@ public final class ParriesBinding extends AbstractBinding {
         }
         Actor against = engine.actor(attacker.invoke(event), defenderRef);
         UUID uuid = who.uuid();
-        publish(new ModAction(header(uuid), ID, A_PARRY, against.isPlayer(), typeOf(against), 0));
+        // The streak is raised before the record goes out, so a consumer reading the counter on the event sees it.
         int streak = streaks.merge(uuid, 1, Integer::sum);
         services.counters.raise(uuid, ModKeys.key(ID, ModKeys.STREAK_BEST), streak);
+        publish(new ModAction(header(uuid), ID, A_PARRY, against.isPlayer(), typeOf(against), 0));
     }
 
     private void onCounterattack(Object event, MethodHandle attacker, MethodHandle target, MethodHandle multiplier)

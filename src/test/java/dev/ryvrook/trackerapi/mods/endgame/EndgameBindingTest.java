@@ -52,7 +52,7 @@ class EndgameBindingTest {
     /** The failure count at which the binding switches a feature off, as {@code AbstractBinding} has it. */
     private static final int FAILURES_TO_OFF = 20;
     private static final List<String> ALL_FEATURES = List.of(EndgameBinding.F_BOSSES, EndgameBinding.F_ACHIEVEMENTS,
-            EndgameBinding.F_DUNGEONS, EndgameBinding.F_TRIALS, EndgameBinding.F_SEEDS);
+            EndgameBinding.F_COMBO, EndgameBinding.F_DUNGEONS, EndgameBinding.F_TRIALS, EndgameBinding.F_SEEDS);
 
     @TempDir
     Path dir;
@@ -175,6 +175,19 @@ class EndgameBindingTest {
         call(bus(), "publish", newFake(loader, eventClass, args));
     }
 
+    @Test
+    void aComboTierRaisesThePersonalBestAndNothingElse() throws Throwable {
+        bind();
+        int before = seen.size();
+        publish(NAMES.comboTier(), P, 1, 2, 7);
+        publish(NAMES.comboTier(), P, 2, 3, 12);
+        publish(NAMES.comboTier(), P, 3, 2, 9);
+        assertEquals(12, counter(P, "endgame:combo_best"), "the best of the three");
+        assertEquals(before, seen.size(), "no record for a tier change");
+        publish(NAMES.comboTier(), null, 1, 2, 50);
+        assertEquals(12, counter(P, "endgame:combo_best"), "no player, nothing");
+    }
+
     private void bossKill(String boss, UUID... credited) throws Throwable {
         publish(NAMES.bossKill(), Set.of(credited), credited[0], boss, "A boss", 120L, Set.of());
     }
@@ -225,15 +238,15 @@ class EndgameBindingTest {
         assertEquals(1, listeners(NAMES.bossKill()));
         assertEquals(1, listeners(NAMES.achievementUnlock()));
         assertEquals(1, listeners(NAMES.dungeonEnter()));
-        assertEquals(0, listeners(ROOT + ".plugin.events.domain.GameEvent$ComboTierChangeEvent"), "combo tiers are left out");
-        assertEquals(3, listeners());
+        assertEquals(1, listeners(ROOT + ".plugin.events.domain.GameEvent$ComboTierChangeEvent"), "combo tiers raise the personal best");
+        assertEquals(4, listeners());
         assertEquals(1, callbacks());
         assertEquals(1, seen.size());
         ModBound bound = (ModBound) seen.get(0);
         assertEquals("endgame", bound.mod());
         assertEquals(EndgameBinding.PLUGIN_ID, bound.pluginId());
         assertTrue(bound.bound());
-        assertTrue(mods.statusLine().contains("Endgame and QoL 6.0.4 bound (5 features)"));
+        assertTrue(mods.statusLine().contains("Endgame and QoL 6.0.4 bound (6 features)"));
         assertEquals(Set.of(EventKind.MOD_BOSS_DEFEATED, EventKind.MOD_MILESTONE, EventKind.DUNGEON_RUN), binding.kinds());
         // the boards asked for, listed once a key holds data
         bossKill("Boss_Frost_Dragon", P);
@@ -472,7 +485,7 @@ class EndgameBindingTest {
     @Test
     void unbindRemovesEveryRegistrationAndTheJoinSubscription() throws Throwable {
         bind();
-        assertEquals(3, listeners());
+        assertEquals(4, listeners());
         assertEquals(1, callbacks());
         int subscriptions = services.publisher.subscriptions().size();
         binding.unbind("the mod is gone");
@@ -502,7 +515,7 @@ class EndgameBindingTest {
         assertEquals(3, seen(ModBound.class).size(), "bound, let go, bound again");
         assertFalse(seen(ModBound.class).get(1).bound());
         assertEquals(0, (int) call(call(old, "getGameEventBus"), "listenerCount"), "the old instance lost its listeners");
-        assertEquals(3, listeners());
+        assertEquals(4, listeners());
         assertEquals(1, callbacks());
     }
 
@@ -510,19 +523,19 @@ class EndgameBindingTest {
     void partialBindListsTheMissingFeatureAndKeepsTheRest() throws Throwable {
         EndgameBinding.Names broken = new EndgameBinding.Names(NAMES.plugin(), NAMES.bus(), NAMES.bossKill(),
                 ROOT + ".plugin.events.domain.GameEvent$Missing", NAMES.dungeonEnter(), NAMES.arenaApi(),
-                NAMES.arenaCallbacks(), NAMES.component(), NAMES.bestiaryState(), NAMES.bestiaryEntry(), NAMES.runeState());
+                NAMES.arenaCallbacks(), NAMES.component(), NAMES.bestiaryState(), NAMES.bestiaryEntry(), NAMES.runeState(), NAMES.comboTier());
         mods.stop();
         binding = new EndgameBinding(broken, worlds);
         mods = new ModBindings(List.of(binding), plugins);
         mods.attach(services);
         bind();
         assertTrue(binding.isBound());
-        assertEquals(List.of(EndgameBinding.F_BOSSES, EndgameBinding.F_DUNGEONS, EndgameBinding.F_TRIALS, EndgameBinding.F_SEEDS),
+        assertEquals(List.of(EndgameBinding.F_BOSSES, EndgameBinding.F_COMBO, EndgameBinding.F_DUNGEONS, EndgameBinding.F_TRIALS, EndgameBinding.F_SEEDS),
                 binding.features());
         assertEquals(List.of(EndgameBinding.F_ACHIEVEMENTS), binding.missing());
-        assertEquals(2, listeners());
+        assertEquals(3, listeners());
         assertEquals(0, listeners(NAMES.achievementUnlock()));
-        assertTrue(mods.statusLine().contains("4 of 5, missing achievement events"));
+        assertTrue(mods.statusLine().contains("5 of 6, missing achievement events"));
         bossKill("Boss_Frost_Dragon", P);
         assertEquals(1, seen(ModBossDefeated.class).size());
     }
@@ -534,14 +547,14 @@ class EndgameBindingTest {
         assertTrue(binding.isBound());
         assertEquals(List.of(EndgameBinding.F_TRIALS), binding.missing());
         assertEquals(0, callbacks());
-        assertEquals(3, listeners());
+        assertEquals(4, listeners());
     }
 
     @Test
     void busThatCannotBeReachedLeavesTheBusFeaturesMissing() throws Throwable {
         EndgameBinding.Names broken = new EndgameBinding.Names(NAMES.plugin(), ROOT + ".plugin.events.domain.NoBus",
                 NAMES.bossKill(), NAMES.achievementUnlock(), NAMES.dungeonEnter(), NAMES.arenaApi(),
-                NAMES.arenaCallbacks(), NAMES.component(), NAMES.bestiaryState(), NAMES.bestiaryEntry(), NAMES.runeState());
+                NAMES.arenaCallbacks(), NAMES.component(), NAMES.bestiaryState(), NAMES.bestiaryEntry(), NAMES.runeState(), NAMES.comboTier());
         mods.stop();
         binding = new EndgameBinding(broken, worlds);
         mods = new ModBindings(List.of(binding), plugins);
@@ -549,7 +562,7 @@ class EndgameBindingTest {
         bind();
         assertTrue(binding.isBound());
         assertEquals(List.of(EndgameBinding.F_TRIALS, EndgameBinding.F_SEEDS), binding.features());
-        assertEquals(List.of(EndgameBinding.F_BOSSES, EndgameBinding.F_ACHIEVEMENTS, EndgameBinding.F_DUNGEONS), binding.missing());
+        assertEquals(List.of(EndgameBinding.F_BOSSES, EndgameBinding.F_ACHIEVEMENTS, EndgameBinding.F_COMBO, EndgameBinding.F_DUNGEONS), binding.missing());
         assertEquals(0, listeners());
     }
 
