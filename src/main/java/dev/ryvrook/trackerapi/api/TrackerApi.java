@@ -34,7 +34,7 @@ import java.util.logging.Logger;
  */
 public abstract class TrackerApi {
     /** Raised whenever a method or an event field is added. */
-    public static final int API_VERSION = 1;
+    public static final int API_VERSION = 2;
 
     private static final Logger LOG = Logger.getLogger("TrackerAPI");
     private static volatile TrackerApi current;
@@ -126,6 +126,12 @@ public abstract class TrackerApi {
 
     /** Counters for status pages, see {@link Stats}. */
     public abstract Stats stats();
+
+    /**
+     * The mods TrackerAPI knows how to read, bound or not, with the counters each writes. Since API 2. A consumer
+     * refreshes it on {@link dev.ryvrook.trackerapi.api.event.ModBound}.
+     */
+    public abstract List<ModInfo> mods();
 
     /** The TrackerAPI version, such as {@code 1.0.0}. */
     public abstract String version();

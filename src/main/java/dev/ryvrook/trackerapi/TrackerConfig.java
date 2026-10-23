@@ -12,6 +12,8 @@ import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.EnumSet;
 import java.util.List;
+import java.util.LinkedHashMap;
+import java.util.Map;
 import java.util.Set;
 import java.util.logging.Level;
 
@@ -50,6 +52,23 @@ public final class TrackerConfig {
     public boolean importOnFirstBoot = true;
     /** Turn on the debug commands. */
     public boolean debugCommands = false;
+    /** Seconds between looks for the mods TrackerAPI reads, 2 to 60. */
+    public int modsPollSeconds = 5;
+    /** Per binding id, {@code auto} binds when the mod is present, {@code never} leaves it alone. */
+    public Map<String, String> mods = defaultMods();
+
+    public static Map<String, String> defaultMods() {
+        Map<String, String> m = new LinkedHashMap<>();
+        for (String id : dev.ryvrook.trackerapi.api.Keys.MOD_PREFIXES) {
+            m.put(id, "auto");
+        }
+        return m;
+    }
+
+    /** True when the binding with this id may bind. Unknown ids are on. */
+    public boolean modEnabled(String id) {
+        return !"never".equalsIgnoreCase(mods.getOrDefault(id, "auto"));
+    }
 
     public static Set<EventKind> defaultJournalKinds() {
         EnumSet<EventKind> kinds = EnumSet.allOf(EventKind.class);
@@ -127,6 +146,22 @@ public final class TrackerConfig {
         }
         importOnFirstBoot = bool(o, "importOnFirstBoot", importOnFirstBoot);
         debugCommands = bool(o, "debugCommands", debugCommands);
+        JsonElement m = o.get("mods");
+        if (m != null && m.isJsonObject()) {
+            JsonObject mo = m.getAsJsonObject();
+            modsPollSeconds = clamp(mo, "pollSeconds", modsPollSeconds, 2, 60, logger);
+            for (Map.Entry<String, JsonElement> e : mo.entrySet()) {
+                if (e.getKey().equals("pollSeconds") || !e.getValue().isJsonPrimitive()) {
+                    continue;
+                }
+                String v = e.getValue().getAsString().trim().toLowerCase(java.util.Locale.ROOT);
+                if (!v.equals("auto") && !v.equals("never")) {
+                    logger.at(Level.WARNING).log("TrackerAPI mods.%s is %s, expected auto or never, using auto", e.getKey(), v);
+                    v = "auto";
+                }
+                mods.put(e.getKey(), v);
+            }
+        }
     }
 
     public JsonObject toJson() {
@@ -149,6 +184,12 @@ public final class TrackerConfig {
         o.add("journal", j);
         o.addProperty("importOnFirstBoot", importOnFirstBoot);
         o.addProperty("debugCommands", debugCommands);
+        JsonObject mo = new JsonObject();
+        mo.addProperty("pollSeconds", modsPollSeconds);
+        for (Map.Entry<String, String> e : mods.entrySet()) {
+            mo.addProperty(e.getKey(), e.getValue());
+        }
+        o.add("mods", mo);
         return o;
     }
 

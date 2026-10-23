@@ -13,5 +13,16 @@ import java.util.UUID;
 public record PlayerSnapshot(UUID uuid, String name, String world, double x, double y, double z, float yaw,
                              float pitch, String gameMode, String zone, String region, String biome,
                              boolean creative, boolean swimming, boolean gliding, boolean riding,
-                             long sessionStart, long sampledAt) {
+                             long sessionStart, long sampledAt, java.util.Map<String, String> facts) {
+    public PlayerSnapshot {
+        facts = facts == null ? java.util.Map.of() : java.util.Map.copyOf(facts);
+    }
+
+    /** The record as it was before 1.2.0, without facts. */
+    public PlayerSnapshot(UUID uuid, String name, String world, double x, double y, double z, float yaw, float pitch,
+                          String gameMode, String zone, String region, String biome, boolean creative, boolean swimming,
+                          boolean gliding, boolean riding, long sessionStart, long sampledAt) {
+        this(uuid, name, world, x, y, z, yaw, pitch, gameMode, zone, region, biome, creative, swimming, gliding, riding,
+                sessionStart, sampledAt, java.util.Map.of());
+    }
 }

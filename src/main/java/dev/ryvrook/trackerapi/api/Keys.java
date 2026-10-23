@@ -130,6 +130,19 @@ public final class Keys {
             P_INSTANCE, P_REPUTATION, P_WORLD, P_STASH);
 
     /** Totals that get a per world copy. */
+    /**
+     * The counter prefixes of the mods TrackerAPI reads itself (the mod bindings), one per binding id. Their keys
+     * are {@code <prefix>:<stat>} and {@code <prefix>:<stat>:<id>}, written by TrackerAPI and not reserved, so other
+     * plugins read them like the {@code coinage:} and {@code dominion:} counters.
+     */
+    public static final List<String> MOD_PREFIXES = List.of("rpg", "dungeons", "parries", "relics", "zephyr", "enchant",
+            "vein", "lucky", "mmo", "endless", "endgame", "tamework");
+
+    /** True for a key under one of {@link #MOD_PREFIXES}. */
+    public static boolean isMod(String key) {
+        return key != null && MOD_PREFIXES.contains(prefixOf(key)) && key.indexOf(':') > 0;
+    }
+
     public static final List<String> PER_WORLD_TOTALS = List.of(BLOCK_BROKEN, BLOCK_PLACED, BLOCK_USED, ITEM_CRAFTED,
             ITEM_PICKED_UP, ITEMS_GAINED, DAMAGE_DEALT, DAMAGE_TAKEN, KILLS, KILLS_PLAYER, KILLS_BOSS, DEATHS,
             PLAYTIME, DISTANCE, CHAT);

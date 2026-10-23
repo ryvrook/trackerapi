@@ -31,6 +31,7 @@ public final class Hooks {
         // ---- end combat ----
         // ---- world ----
         sets.add(new WorldHooks());
+        sets.add(dev.ryvrook.trackerapi.mods.ModBindings.create());
         // ---- end world ----
         return sets;
     }

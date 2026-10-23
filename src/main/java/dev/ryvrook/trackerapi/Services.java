@@ -33,6 +33,7 @@ public final class Services {
     public final ScheduledExecutorService timer;
     private volatile TrackerConfig config;
     private volatile dev.ryvrook.trackerapi.journal.JournalService journal;
+    private volatile dev.ryvrook.trackerapi.mods.ModBindings mods;
 
     Services(HytaleLogger logger, Path dataDir, TrackerConfig config, Perf perf, Publisher publisher, Dispatcher dispatcher,
              CounterStore counters, CounterSink counterSink, PlayerRegistry players, ScheduledExecutorService io,
@@ -86,6 +87,15 @@ public final class Services {
 
     void setJournal(dev.ryvrook.trackerapi.journal.JournalService journal) {
         this.journal = journal;
+    }
+
+    /** The mod bindings hook set once installed, null before and in tests without it. */
+    public dev.ryvrook.trackerapi.mods.ModBindings mods() {
+        return mods;
+    }
+
+    public void setMods(dev.ryvrook.trackerapi.mods.ModBindings mods) {
+        this.mods = mods;
     }
 
     /** A header for an event observed now. Call it only after {@code publisher.wants(kind)} said yes. */

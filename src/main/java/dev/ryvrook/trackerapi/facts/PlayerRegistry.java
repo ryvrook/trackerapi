@@ -30,6 +30,8 @@ public final class PlayerRegistry {
         /** The last position the sampler saw, so a teleport can report where from. */
         public volatile double lastX, lastY, lastZ;
         public volatile boolean placed;
+        /** Strings the mod bindings keep about the player, such as {@code rpg.level}, copied into the snapshot. */
+        public final java.util.concurrent.ConcurrentHashMap<String, String> facts = new java.util.concurrent.ConcurrentHashMap<>();
 
         Online(UUID uuid, String name, long now) {
             this.uuid = uuid;

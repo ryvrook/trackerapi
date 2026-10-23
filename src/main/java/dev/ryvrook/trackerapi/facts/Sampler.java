@@ -352,7 +352,8 @@ public final class Sampler {
             o.world = worldName;
         }
         o.snapshot = new PlayerSnapshot(uuid, o.name, worldName, pos.x, pos.y, pos.z, yaw, pitch, o.gameMode,
-                zone, region, biome, o.creative, swimming, gliding, riding, o.sessionStart, now);
+                zone, region, biome, o.creative, swimming, gliding, riding, o.sessionStart, now,
+                o.facts.isEmpty() ? java.util.Map.of() : java.util.Map.copyOf(o.facts));
     }
 
     /**

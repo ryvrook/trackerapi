@@ -14,12 +14,24 @@ public final class CounterRules {
             Keys.LONGEST_FALL, Keys.HIGHEST_Y);
     private static final Set<String> MIN = Set.of(Keys.LOWEST_Y);
 
+    /** The stat names of the mod counters that keep a best value, such as {@code rpg:level} or {@code vein:largest}. */
+    private static final Set<String> MOD_MAX = Set.of("level", "skill_level", "largest", "highest_level", "streak_best",
+            "companion_level_best");
+    private static final Set<String> MOD_MIN = Set.of("fastest");
+
     public static boolean isMax(String key) {
-        return MAX.contains(key);
+        return MAX.contains(key) || (Keys.isMod(key) && (MOD_MAX.contains(modStat(key)) || modStat(key).endsWith("_best")));
     }
 
     public static boolean isMin(String key) {
-        return MIN.contains(key);
+        return MIN.contains(key) || (Keys.isMod(key) && MOD_MIN.contains(modStat(key)));
+    }
+
+    /** The stat part of a mod key, {@code level} for {@code rpg:level} and for {@code mmo:level:Mining}. */
+    static String modStat(String key) {
+        int a = key.indexOf(':');
+        int b = key.indexOf(':', a + 1);
+        return b < 0 ? key.substring(a + 1) : key.substring(a + 1, b);
     }
 
     /** Per id prefixes that record a first sighting, set to one once, with the total each one feeds. */

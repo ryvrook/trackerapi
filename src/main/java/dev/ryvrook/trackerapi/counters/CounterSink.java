@@ -3,8 +3,22 @@ package dev.ryvrook.trackerapi.counters;
 import dev.ryvrook.trackerapi.api.Actor;
 import dev.ryvrook.trackerapi.api.EventKind;
 import dev.ryvrook.trackerapi.api.Keys;
+import dev.ryvrook.trackerapi.api.ModKeys;
 import dev.ryvrook.trackerapi.api.TrackerEvent;
 import dev.ryvrook.trackerapi.api.event.BlockBroken;
+import dev.ryvrook.trackerapi.api.event.ModLevelUp;
+import dev.ryvrook.trackerapi.api.event.ModXpGained;
+import dev.ryvrook.trackerapi.api.event.ModChoiceChanged;
+import dev.ryvrook.trackerapi.api.event.ModAbilityUsed;
+import dev.ryvrook.trackerapi.api.event.ModAction;
+import dev.ryvrook.trackerapi.api.event.ModMilestone;
+import dev.ryvrook.trackerapi.api.event.DungeonRun;
+import dev.ryvrook.trackerapi.api.event.ModBossDefeated;
+import dev.ryvrook.trackerapi.api.event.ItemEnchanted;
+import dev.ryvrook.trackerapi.api.event.EnchantmentTriggered;
+import dev.ryvrook.trackerapi.api.event.VeinMined;
+import dev.ryvrook.trackerapi.api.event.LuckyDrop;
+import dev.ryvrook.trackerapi.api.event.CompanionChanged;
 import dev.ryvrook.trackerapi.api.event.BlockPlaced;
 import dev.ryvrook.trackerapi.api.event.BlockUsed;
 import dev.ryvrook.trackerapi.api.event.CreatureTamed;
@@ -74,7 +88,11 @@ public final class CounterSink implements Publisher.Sink {
             EventKind.PLAYER_MOVED, EventKind.MOVEMENT_EDGE, EventKind.MOUNT_CHANGED, EventKind.MEMORY_RECORDED,
             EventKind.EFFECT_CHANGED, EventKind.WORLD_EVENT_ENDED, EventKind.ENTITY_USED, EventKind.INSTANCE_DISCOVERED,
             EventKind.ITEM_BROKE, EventKind.OBJECTIVE_COMPLETED, EventKind.PLAYER_SLEPT, EventKind.RECIPE_LEARNED,
-            EventKind.REPUTATION_CHANGED);
+            EventKind.REPUTATION_CHANGED,
+            EventKind.MOD_LEVEL_UP, EventKind.MOD_XP_GAINED, EventKind.MOD_CHOICE_CHANGED, EventKind.MOD_ABILITY_USED,
+            EventKind.MOD_ACTION, EventKind.MOD_MILESTONE, EventKind.DUNGEON_RUN, EventKind.MOD_BOSS_DEFEATED,
+            EventKind.ITEM_ENCHANTED, EventKind.ENCHANTMENT_TRIGGERED, EventKind.VEIN_MINED, EventKind.LUCKY_DROP,
+            EventKind.COMPANION_CHANGED);
 
     private final CounterStore store;
     /** At most one counted chat message per player in this window, the Feats rule. */
@@ -251,6 +269,139 @@ public final class CounterSink implements Publisher.Sink {
                 PlayerCounters pc = store.live(p);
                 if (pc != null && e.groupId() != null) {
                     pc.set(Keys.of(Keys.P_REPUTATION, e.groupId()), e.to());
+                }
+            }
+            case ModLevelUp e -> {
+                if (p == null || e.mod() == null) {
+                    return;
+                }
+                boolean main = e.track() == null || e.track().isEmpty() || e.track().equals(ModKeys.PLAYER_TRACK);
+                if (main) {
+                    store.raise(p, Keys.of(e.mod(), ModKeys.LEVEL), e.newLevel());
+                    store.add(p, Keys.of(e.mod(), ModKeys.LEVEL_UPS), Math.max(1, e.newLevel() - e.oldLevel()), w);
+                    if (e.maxLevel() > 0 && e.newLevel() >= e.maxLevel()) {
+                        store.discover(p, Keys.of(e.mod(), ModKeys.MAX_LEVEL_REACHED), ModKeys.PLAYER_TRACK, null);
+                    }
+                } else {
+                    store.raise(p, Keys.of(Keys.of(e.mod(), ModKeys.SKILL_LEVEL), e.track()), e.newLevel());
+                    store.add(p, Keys.of(e.mod(), ModKeys.SKILL_LEVEL_UPS), Math.max(1, e.newLevel() - e.oldLevel()), w);
+                }
+            }
+            case ModXpGained e -> {
+                if (p == null || e.mod() == null) {
+                    return;
+                }
+                long amount = Math.round(e.amount());
+                if (amount <= 0) {
+                    return;
+                }
+                boolean main = e.track() == null || e.track().isEmpty() || e.track().equals(ModKeys.PLAYER_TRACK);
+                String id = main ? e.source() : e.track();
+                store.addId(p, Keys.of(e.mod(), ModKeys.XP), id, Keys.of(e.mod(), ModKeys.XP), amount, w);
+            }
+            case ModChoiceChanged e -> {
+                if (p == null || e.mod() == null || e.slot() == null || e.id() == null) {
+                    return;
+                }
+                store.discover(p, Keys.of(e.mod(), e.slot()), e.id(), Keys.of(e.mod(), ModKeys.plural(e.slot())));
+            }
+            case ModAbilityUsed e -> {
+                if (p == null || e.mod() == null) {
+                    return;
+                }
+                store.addId(p, Keys.of(e.mod(), ModKeys.ABILITIES), e.abilityId(), Keys.of(e.mod(), ModKeys.ABILITIES), 1, w);
+            }
+            case ModAction e -> {
+                if (p == null || e.mod() == null || e.action() == null) {
+                    return;
+                }
+                String key = Keys.of(e.mod(), e.action());
+                store.add(p, key, 1, w);
+                if (e.pvp()) {
+                    store.add(p, Keys.of(key, ModKeys.PVP), 1, w);
+                }
+            }
+            case ModMilestone e -> {
+                if (p == null || e.mod() == null || e.category() == null || e.id() == null) {
+                    return;
+                }
+                store.discover(p, Keys.of(e.mod(), e.category()), e.id(), Keys.of(e.mod(), ModKeys.plural(e.category())));
+            }
+            case DungeonRun e -> {
+                if (p == null || e.mod() == null || e.phase() == null) {
+                    return;
+                }
+                switch (e.phase()) {
+                    case ENTERED -> store.addId(p, Keys.of(e.mod(), ModKeys.RUNS), e.dungeonId(), Keys.of(e.mod(), ModKeys.RUNS), 1, w);
+                    case COMPLETED -> {
+                        store.addId(p, Keys.of(e.mod(), ModKeys.CLEARED), e.dungeonId(), Keys.of(e.mod(), ModKeys.CLEARED), 1, w);
+                        if (e.mode() != null && !e.mode().isEmpty()) {
+                            store.add(p, Keys.of(Keys.of(e.mod(), ModKeys.CLEARED_MODE), e.mode()), 1, w);
+                        }
+                        if (e.durationMillis() > 0) {
+                            store.lower(p, Keys.of(e.mod(), ModKeys.FASTEST), e.durationMillis());
+                            if (e.dungeonId() != null) {
+                                store.lower(p, Keys.of(Keys.of(e.mod(), ModKeys.FASTEST), e.dungeonId()), e.durationMillis());
+                            }
+                        }
+                    }
+                    case FAILED -> store.addId(p, Keys.of(e.mod(), ModKeys.FAILED), e.dungeonId(), Keys.of(e.mod(), ModKeys.FAILED), 1, w);
+                    case LEFT -> { }
+                }
+            }
+            case ModBossDefeated e -> {
+                if (p == null || e.mod() == null) {
+                    return;
+                }
+                store.addId(p, Keys.of(e.mod(), ModKeys.BOSSES), e.bossId(), Keys.of(e.mod(), ModKeys.BOSSES), 1, w);
+            }
+            case ItemEnchanted e -> {
+                if (p == null || e.mod() == null) {
+                    return;
+                }
+                store.addId(p, Keys.of(e.mod(), ModKeys.ITEMS), e.enchantId(), Keys.of(e.mod(), ModKeys.ITEMS), 1, w);
+                if (e.level() > 0) {
+                    store.raise(p, Keys.of(e.mod(), ModKeys.HIGHEST_LEVEL), e.level());
+                }
+            }
+            case EnchantmentTriggered e -> {
+                if (p == null || e.mod() == null) {
+                    return;
+                }
+                store.addId(p, Keys.of(e.mod(), ModKeys.PROCS), e.enchantId(), Keys.of(e.mod(), ModKeys.PROCS), 1, w);
+            }
+            case VeinMined e -> {
+                if (p == null || e.mod() == null || e.blocks() <= 0) {
+                    return;
+                }
+                store.add(p, Keys.of(e.mod(), ModKeys.VEINS), 1, w);
+                store.addId(p, Keys.of(e.mod(), ModKeys.BLOCKS), e.blockId(), Keys.of(e.mod(), ModKeys.BLOCKS), e.blocks(), w);
+                store.raise(p, Keys.of(e.mod(), ModKeys.LARGEST), e.blocks());
+            }
+            case LuckyDrop e -> {
+                if (p == null || e.mod() == null) {
+                    return;
+                }
+                store.addId(p, Keys.of(e.mod(), ModKeys.DROPS), e.blockId(), Keys.of(e.mod(), ModKeys.DROPS), 1, w);
+                if (e.streak() > 0) {
+                    store.raise(p, Keys.of(e.mod(), ModKeys.STREAK_BEST), e.streak());
+                }
+            }
+            case CompanionChanged e -> {
+                if (p == null || e.mod() == null || e.change() == null) {
+                    return;
+                }
+                switch (e.change()) {
+                    case TAMED -> store.addId(p, Keys.of(e.mod(), ModKeys.TAMED), e.npcTypeId(), Keys.of(e.mod(), ModKeys.TAMED), 1, w);
+                    case BRED -> store.addId(p, Keys.of(e.mod(), ModKeys.BRED), e.npcTypeId(), Keys.of(e.mod(), ModKeys.BRED), 1, w);
+                    case LEVEL_UP -> {
+                        store.add(p, Keys.of(e.mod(), ModKeys.COMPANION_LEVEL_UPS), 1, w);
+                        if (e.level() > 0) {
+                            store.raise(p, Keys.of(e.mod(), ModKeys.COMPANION_LEVEL_BEST), e.level());
+                        }
+                    }
+                    case DIED -> store.add(p, Keys.of(e.mod(), ModKeys.COMPANIONS_LOST), 1, w);
+                    case RENAMED, MOUNTED, RELEASED -> { }
                 }
             }
             default -> { }

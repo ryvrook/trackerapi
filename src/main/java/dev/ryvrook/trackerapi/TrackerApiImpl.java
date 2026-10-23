@@ -101,6 +101,12 @@ final class TrackerApiImpl extends TrackerApi {
     }
 
     @Override
+    public List<dev.ryvrook.trackerapi.api.ModInfo> mods() {
+        var m = s.mods();
+        return m == null ? List.of() : m.infos();
+    }
+
+    @Override
     public String version() {
         return version;
     }

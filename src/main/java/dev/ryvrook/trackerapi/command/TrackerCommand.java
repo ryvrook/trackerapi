@@ -80,6 +80,7 @@ public final class TrackerCommand extends AbstractCommandCollection {
         addSubCommand(new Top(this));
         addSubCommand(new Import(this));
         addSubCommand(new Reload(this));
+        addSubCommand(new Mods(this));
         addSubCommand(new Debug(this));
     }
 
@@ -327,6 +328,10 @@ public final class TrackerCommand extends AbstractCommandCollection {
         lines.add(built <= 0 ? "Boards are not built yet."
                 : "Boards built " + duration(System.currentTimeMillis() - built) + " ago over "
                 + s.counters.boards().players() + " players.");
+        var mods = s.mods();
+        if (mods != null) {
+            lines.add(mods.statusLine());
+        }
         List<String> users = plugin.dependentNames();
         lines.add(users.isEmpty() ? "No enabled plugin lists TrackerAPI." : "Used by " + String.join(", ", users) + ".");
         List<Subscription> subs = s.publisher.subscriptions();
@@ -336,6 +341,24 @@ public final class TrackerCommand extends AbstractCommandCollection {
                     + (sub.isSuspended() ? ", suspended" : "") + (sub.isActive() ? "" : ", closed"));
         }
         return lines;
+    }
+
+    // ---- mods --------------------------------------------------------------------------------------------
+
+    static final class Mods extends CommandBase {
+        private final TrackerCommand root;
+
+        Mods(TrackerCommand root) {
+            super("mods", "The other mods TrackerAPI reads, bound or not, with their features and counters.");
+            requirePermission(ADMIN_PERMISSION);
+            this.root = root;
+        }
+
+        @Override
+        protected void executeSync(CommandContext context) {
+            var mods = root.s().mods();
+            replyLines(context, mods == null ? List.of("TrackerAPI ships no mod bindings.") : mods.lines());
+        }
     }
 
     // ---- perf --------------------------------------------------------------------------------------------

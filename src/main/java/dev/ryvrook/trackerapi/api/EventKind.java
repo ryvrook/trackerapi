@@ -71,7 +71,21 @@ public enum EventKind {
     REPUTATION_CHANGED(false),
     SPECTATING_CHANGED(false),
     PLAYER_SLEPT(false),
-    GAME_TIME_SAMPLED(false);
+    GAME_TIME_SAMPLED(false),
+    MOD_LEVEL_UP(false),
+    MOD_XP_GAINED(true),
+    MOD_CHOICE_CHANGED(false),
+    MOD_ABILITY_USED(false),
+    MOD_ACTION(false),
+    MOD_MILESTONE(false),
+    DUNGEON_RUN(false),
+    MOD_BOSS_DEFEATED(false),
+    ITEM_ENCHANTED(false),
+    ENCHANTMENT_TRIGGERED(true),
+    VEIN_MINED(false),
+    LUCKY_DROP(false),
+    COMPANION_CHANGED(false),
+    MOD_BOUND(false);
 
     private final boolean highVolume;
     private final String id;
