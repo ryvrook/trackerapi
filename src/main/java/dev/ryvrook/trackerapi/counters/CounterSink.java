@@ -8,6 +8,7 @@ import dev.ryvrook.trackerapi.api.TrackerEvent;
 import dev.ryvrook.trackerapi.api.event.BlockBroken;
 import dev.ryvrook.trackerapi.api.event.ModLevelUp;
 import dev.ryvrook.trackerapi.api.event.ModXpGained;
+import dev.ryvrook.trackerapi.api.event.ModTally;
 import dev.ryvrook.trackerapi.api.event.ModChoiceChanged;
 import dev.ryvrook.trackerapi.api.event.ModAbilityUsed;
 import dev.ryvrook.trackerapi.api.event.ModAction;
@@ -92,7 +93,7 @@ public final class CounterSink implements Publisher.Sink {
             EventKind.MOD_LEVEL_UP, EventKind.MOD_XP_GAINED, EventKind.MOD_CHOICE_CHANGED, EventKind.MOD_ABILITY_USED,
             EventKind.MOD_ACTION, EventKind.MOD_MILESTONE, EventKind.DUNGEON_RUN, EventKind.MOD_BOSS_DEFEATED,
             EventKind.ITEM_ENCHANTED, EventKind.ENCHANTMENT_TRIGGERED, EventKind.VEIN_MINED, EventKind.LUCKY_DROP,
-            EventKind.COMPANION_CHANGED);
+            EventKind.COMPANION_CHANGED, EventKind.MOD_TALLY);
 
     private final CounterStore store;
     /** At most one counted chat message per player in this window, the Feats rule. */
@@ -425,6 +426,18 @@ public final class CounterSink implements Publisher.Sink {
                     }
                     case DIED -> store.add(p, Keys.of(e.mod(), ModKeys.COMPANIONS_LOST), 1, w);
                     case RENAMED, MOUNTED, RELEASED -> { }
+                }
+            }
+            case ModTally e -> {
+                if (p == null || e.mod() == null || e.stat() == null || e.stat().isEmpty()) {
+                    return;
+                }
+                String key = Keys.of(e.mod(), e.stat());
+                if (e.amount() > 0) {
+                    store.addId(p, key, e.id() == null || e.id().isEmpty() ? null : e.id(), key, e.amount(), w);
+                }
+                if (e.best() > 0) {
+                    store.raise(p, Keys.of(e.mod(), e.stat() + "_best"), e.best());
                 }
             }
             default -> { }

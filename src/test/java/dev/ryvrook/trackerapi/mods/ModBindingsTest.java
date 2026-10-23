@@ -437,7 +437,7 @@ class ModBindingsTest {
 
     @Test
     void eventKindCountCoversTheNewKinds() {
-        assertEquals(76, EventKind.COUNT);
+        assertEquals(77, EventKind.COUNT);
         List<EventKind> high = new ArrayList<>();
         for (EventKind k : EventKind.values()) {
             if (k.highVolume()) {

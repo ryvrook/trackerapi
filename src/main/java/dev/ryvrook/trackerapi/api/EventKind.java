@@ -85,7 +85,8 @@ public enum EventKind {
     VEIN_MINED(false),
     LUCKY_DROP(false),
     COMPANION_CHANGED(false),
-    MOD_BOUND(false);
+    MOD_BOUND(false),
+    MOD_TALLY(false);
 
     private final boolean highVolume;
     private final String id;

@@ -256,6 +256,22 @@ class ModCountersTest {
     }
 
     @Test
+    void aTallyAddsTheTotalThePerIdCountAndRaisesTheBest() {
+        sink.accept(new dev.ryvrook.trackerapi.api.event.ModTally(h(), "fish", "caught", "Fish_Trout", 1, 0));
+        sink.accept(new dev.ryvrook.trackerapi.api.event.ModTally(h(), "fish", "caught", "Fish_Trout", 2, 0));
+        sink.accept(new dev.ryvrook.trackerapi.api.event.ModTally(h(), "fish", "caught", null, 1, 0));
+        sink.accept(new dev.ryvrook.trackerapi.api.event.ModTally(h(), "fish", "grade", null, 0, 4));
+        sink.accept(new dev.ryvrook.trackerapi.api.event.ModTally(h(), "fish", "grade", null, 0, 2));
+        sink.accept(new dev.ryvrook.trackerapi.api.event.ModTally(h(), "fish", "", null, 5, 5));
+        assertEquals(4, get("fish:caught"));
+        assertEquals(3, get("fish:caught:Fish_Trout"));
+        assertEquals(4, get("fish:grade_best"));
+        assertEquals(0, get("fish:grade"));
+        assertTrue(CounterRules.isMax("fish:grade_best"));
+        assertEquals("species", ModKeys.plural("species"));
+    }
+
+    @Test
     void modKeysAreExternalNotReservedAndRulesKnowTheBests() {
         assertTrue(Keys.isMod("rpg:level"));
         assertFalse(Keys.isMod("rpg"));

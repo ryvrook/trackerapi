@@ -51,6 +51,9 @@ public final class ModKeys {
             return word;
         }
         String w = word;
+        if (w.equals("species") || w.equals("series")) {
+            return w;
+        }
         if (w.endsWith("y") && w.length() > 1 && "aeiou".indexOf(w.charAt(w.length() - 2)) < 0) {
             return w.substring(0, w.length() - 1) + "ies";
         }
