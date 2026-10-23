@@ -1,7 +1,7 @@
 # TrackerAPI
 
 TrackerAPI hooks the engine once for every block, item, hit, death, movement, chat line and world change, and
-hands the result to other plugins as 76 kinds of event, lifetime counters per player and an hourly journal on
+hands the result to other plugins as 77 kinds of event, lifetime counters per player and an hourly journal on
 disk. It also reads the popular mods a server runs, levels, dungeons, parries, relics, enchantments and more, and
 counts them the same way. On its own it does nothing a player sees. It exists so Feats, Chronicle Stats, Atlas, Coinage and Dominion
 stop running five copies of the same tracking and stop disagreeing about the numbers. SocialBridge and RestAPI
@@ -13,9 +13,9 @@ Hytale server 0.7.0 release or newer, tested on 0.7.1, and Java 25. No client mo
 
 ## Install
 
-Put `TrackerAPI-1.2.1.jar` in the server's `mods` folder and start the server, or run
+Put `TrackerAPI-1.3.0.jar` in the server's `mods` folder and start the server, or run
 `/plugin load Ryvrook:TrackerAPI`. The log should say
-`TrackerAPI 1.2.1 set up, 53 hooks registered, 0 unsupported, 76 kinds tracked, journal on`. Settings go to
+`TrackerAPI 1.3.0 set up, 53 hooks registered, 0 unsupported, 77 kinds tracked, journal on`. Settings go to
 `mods/Ryvrook_TrackerAPI/TrackerAPI.json`.
 
 On first boot it reads the Feats and Chronicle Stats player files it finds next door and seeds its counters
@@ -113,6 +113,9 @@ its `mod` field. `TrackerApi.mods()` lists every mod with its bound state and ev
 | Lucky Mining 1.0.8 | `Buuz135:LuckyMining` | `lucky` | Lucky drops by ore, longest streak |
 | MMO Skill Tree 1.7.3 | `Ziggfreed:MMOSkillTree` | `mmo` | Total level and skill levels (best), skill level ups, XP by skill, abilities cast, classes, quests, bounties and achievements. Fact `mmo.class` |
 | Endgame and QoL 6.0.4 | `Config:Endgame&QoL` | `endgame` | Boss kills by boss, achievements, dungeon entries, trials completed and failed by arena, fastest trial, waves and highest wave, bestiary entries, runes, best combo |
+| Angler's Almanac 1.2.2 | `dev.rm20:AnglersAlmanac` | `fish` | Fish caught by species, junk, catches by rarity and grade, legendary and golden catches, best grade, performance, perfect streak and size, species, Almanac pages and zones found, casts, hooks and escapes |
+| Arcanum 0.6.3 | `com.zenkuro:Arcanum` | `arcanum` | Spells cast by name, energy spent, the most expensive, most complex and largest spell, failed casts by stage, runes known |
+| Ymmersive Melodies 1.1.5 | `Conczin:Ymmersive Melodies` | `melodies` | Songs started, finished and stopped by song, time played by instrument, the longest song finished, songs played together and the largest band, distinct songs and instruments |
 | Alec's Tamework 5.5.1 | `Alechilles:Alec's Tamework!` | `tamework` | Companions tamed by species, bred by species, companion level ups and best level, companions lost, companion XP, harvests and culls. Facts `tamework.companions` and `tamework.husbandry` |
 
 Each binding reads only the mod's public API or, for the mods without one, TrackerAPI's own engine events. Nothing of

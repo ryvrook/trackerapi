@@ -400,7 +400,7 @@ class ModBindingsTest {
                 }
             }
         }
-        assertEquals(9, families, "class (rpg, mmo), quest, bounty, achievement (mmo, endgame), bestiary, rune, wave");
+        assertEquals(15, families, "class (rpg, mmo), quest, bounty, achievement (mmo, endgame), bestiary, rune (endgame, arcanum), wave, fish species, page and zone, song, instrument");
         var discovery = dev.ryvrook.trackerapi.api.StatSpec.discovery("rpg:class", "Class", "Class");
         assertEquals(dev.ryvrook.trackerapi.api.StatSpec.Aggregate.COUNT, discovery.aggregate());
         assertTrue(discovery.perId());

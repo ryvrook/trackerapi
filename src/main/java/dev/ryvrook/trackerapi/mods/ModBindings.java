@@ -96,6 +96,9 @@ public final class ModBindings implements HookSet {
         list.add(new dev.ryvrook.trackerapi.mods.mmo.MmoBinding());
         list.add(new dev.ryvrook.trackerapi.mods.endgame.EndgameBinding());
         list.add(new dev.ryvrook.trackerapi.mods.tamework.TameworkBinding());
+        list.add(new dev.ryvrook.trackerapi.mods.fish.AnglersBinding());
+        list.add(new dev.ryvrook.trackerapi.mods.arcanum.ArcanumBinding());
+        list.add(new dev.ryvrook.trackerapi.mods.melodies.MelodiesBinding());
         // ---- bindings, end ----
         return list;
     }

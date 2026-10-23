@@ -1,5 +1,18 @@
 # Changelog
 
+## 1.3.0
+
+Three more mods and one more generic kind. Updating is a jar swap.
+
+- Bindings for Angler's Almanac (fish caught by species, rarity and grade, legendary and golden catches, best grade,
+  performance, perfect streak and size, species, Almanac pages and zones found, casts, hooks, escapes), Arcanum
+  (spells cast by name, energy spent and the most expensive, most complex and largest spell, failed casts, runes
+  known) and Ymmersive Melodies (songs started, finished and stopped, time played by instrument, the longest song,
+  songs played together and the largest band, distinct songs and instruments). Fourteen mods in all.
+- `ModTally(mod, stat, id, amount, best)`, the 77th kind, for counts and bests the other mod kinds do not cover.
+  The sink adds to `<mod>:<stat>` and `<mod>:<stat>:<id>` and raises `<mod>:<stat>_best`.
+- The plural of a discovery total keeps "species" as it is.
+
 ## 1.2.1
 
 Three small fixes to the mod bindings. Updating is a jar swap.
